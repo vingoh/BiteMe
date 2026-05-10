@@ -1,5 +1,5 @@
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 from .state import SessionState
 from .nodes import questioner_node, answerer_node
@@ -11,7 +11,7 @@ def _should_continue(state: SessionState) -> str:
     return "continue"
 
 
-def build_graph(checkpointer: BaseCheckpointSaver) -> StateGraph:
+def build_graph(checkpointer: SqliteSaver) -> StateGraph:
     builder = StateGraph(SessionState)
     builder.add_node("questioner", questioner_node)
     builder.add_node("answerer", answerer_node)
