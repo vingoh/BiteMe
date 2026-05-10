@@ -52,11 +52,16 @@ CLI (Typer + Rich)
 
 ```python
 class ContextProvider(ABC):
-    def retrieve(self, query: str) -> list[str]: ...
+    def get_overview(self) -> list[str]: ...   # 冷启动：不需要 query，直接返回源内容概览
+    def retrieve(self, query: str) -> list[str]: ...  # 后续轮：按 query 检索相关片段
 ```
 
-- **DirectProvider**：读取文件全文，直接以字符串列表返回（适合单文件、简历等小内容）
-- **RAGProvider**：从 LanceDB 检索 top-k 相关 chunk，返回片段列表（适合大型仓库、多文档集合）
+- **DirectProvider**：
+  - `get_overview()`：读取文件全文返回（适合单文件、简历等小内容）
+  - `retrieve()`：同 `get_overview()`，query 参数忽略（内容本就全量在内存里）
+- **RAGProvider**：
+  - `get_overview()`：从索引表直接取前 N 条 chunk，**不做向量搜索**
+  - `retrieve()`：以 query 做向量检索，返回 top-k 相关 chunk
 
 **自动选择逻辑（factory）**：
 
@@ -106,9 +111,10 @@ hitl_flags = ["questioner", "answerer"]             # 两侧均为人类
 
 1. 若 `"questioner" in hitl_flags` → `interrupt()`，CLI 接收人类输入
 2. 否则：
-   - 从 `state["messages"]` 读取完整对话历史（已问过哪些问题、收到了哪些回答）
-   - **可选**：以当前话题为 query，调用 `ContextProvider.retrieve(query)` 从知识库取几段参考内容，辅助生成更贴近内容的问题；query 字符串本身由对话历史推导而来
-   - 将对话历史 + 可选的检索片段一起传给 LLM，生成下一个问题
+   - 从 `state["messages"]` 读取完整对话历史
+   - **第一轮**（`messages` 为空）：调用 `provider.get_overview()` 获取源内容概览，让提问者先了解内容再出题
+   - **后续轮**：以 `messages[-1]["content"]`（上轮回答）为 query，调用 `provider.retrieve(query)` 取相关片段辅助出题
+   - 将对话历史 + 上下文一起传给 LLM，生成下一个问题
 3. 追加 Turn，切换 `current_speaker → "answerer"`
 
 **answerer_node**：

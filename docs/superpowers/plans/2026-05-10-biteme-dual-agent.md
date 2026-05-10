@@ -217,6 +217,15 @@ def test_retrieve_single_file(tmp_path):
     provider = DirectProvider(source_path=str(f))
     chunks = provider.retrieve("经历")
     assert "张三" in chunks[0]
+
+def test_get_overview_returns_content(tmp_path):
+    (tmp_path / "main.py").write_text("def main(): pass")
+    (tmp_path / "README.md").write_text("# Project")
+    provider = DirectProvider(source_path=str(tmp_path))
+    chunks = provider.get_overview()
+    assert len(chunks) == 2
+    contents = "\n".join(chunks)
+    assert "def main" in contents
 ```
 
 - [ ] **步骤 2：运行确认失败**
@@ -233,6 +242,11 @@ pytest tests/test_context_direct.py -v
 from abc import ABC, abstractmethod
 
 class ContextProvider(ABC):
+    @abstractmethod
+    def get_overview(self) -> list[str]:
+        """冷启动用：不需要 query，直接返回源内容概览片段。"""
+        ...
+
     @abstractmethod
     def retrieve(self, query: str) -> list[str]:
         """根据 query 返回相关内容片段列表。"""
@@ -251,7 +265,7 @@ class DirectProvider(ContextProvider):
     def __init__(self, source_path: str) -> None:
         self._path = Path(source_path)
 
-    def retrieve(self, query: str) -> list[str]:
+    def _read_all(self) -> list[str]:
         if self._path.is_file():
             return [self._path.read_text(errors="ignore")]
         chunks = []
@@ -259,6 +273,13 @@ class DirectProvider(ContextProvider):
             if f.is_file() and f.suffix in _SUPPORTED_EXTENSIONS:
                 chunks.append(f.read_text(errors="ignore"))
         return chunks
+
+    def get_overview(self) -> list[str]:
+        return self._read_all()
+
+    def retrieve(self, query: str) -> list[str]:
+        # DirectProvider 内容全量在内存里，query 不影响结果
+        return self._read_all()
 ```
 
 - [ ] **步骤 5：运行确认通过**
@@ -267,7 +288,7 @@ class DirectProvider(ContextProvider):
 pytest tests/test_context_direct.py -v
 ```
 
-预期：`3 passed`
+预期：`4 passed`
 
 - [ ] **步骤 6：提交**
 
@@ -423,6 +444,25 @@ def test_retrieve_returns_chunks(tmp_path):
 
     assert len(chunks) == 2
     assert "def foo" in chunks[0]
+
+def test_get_overview_does_not_use_vector_search(tmp_path):
+    mock_embed = MagicMock()
+    mock_table = MagicMock()
+    mock_table.to_pandas.return_value.__getitem__.return_value.tolist.return_value = [
+        "def foo(): pass",
+        "def bar(): pass",
+        "class Baz: pass",
+    ]
+    mock_db = MagicMock()
+    mock_db.open_table.return_value = mock_table
+
+    with patch("biteme.context.rag.OpenAIEmbeddings", return_value=mock_embed), \
+         patch("biteme.context.rag.lancedb.connect", return_value=mock_db):
+        provider = RAGProvider(db_path=str(tmp_path / "db"), top_k=5)
+        chunks = provider.get_overview()
+
+    mock_embed.embed_query.assert_not_called()   # 不做向量搜索
+    assert len(chunks) > 0
 ```
 
 - [ ] **步骤 2：运行确认失败**
@@ -440,6 +480,8 @@ import lancedb
 from langchain_openai import OpenAIEmbeddings
 from .base import ContextProvider
 
+_OVERVIEW_ROWS = 10  # get_overview 直接取前 N 行，不做向量搜索
+
 class RAGProvider(ContextProvider):
     def __init__(self, db_path: str, top_k: int = 5) -> None:
         self._db_path = db_path
@@ -447,6 +489,11 @@ class RAGProvider(ContextProvider):
         self._embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
         self._db = lancedb.connect(db_path)
         self._table = self._db.open_table("chunks")
+
+    def get_overview(self) -> list[str]:
+        # 直接扫表取前 N 条，不做向量搜索，避免无意义 query 污染结果
+        rows = self._table.to_pandas()["text"].tolist()
+        return rows[:_OVERVIEW_ROWS]
 
     def retrieve(self, query: str) -> list[str]:
         vector = self._embeddings.embed_query(query)
@@ -460,7 +507,7 @@ class RAGProvider(ContextProvider):
 pytest tests/test_context_rag.py -v
 ```
 
-预期：`1 passed`
+预期：`2 passed`
 
 - [ ] **步骤 5：提交**
 
@@ -676,9 +723,13 @@ def test_questioner_node_appends_turn(tmp_path):
 
     with patch("biteme.graph.nodes.ChatOpenAI", return_value=mock_llm), \
          patch("biteme.graph.nodes.create_provider") as mock_factory:
-        mock_factory.return_value.retrieve.return_value = ["def foo(): pass"]
+        mock_provider = MagicMock()
+        mock_provider.get_overview.return_value = ["def foo(): pass"]
+        mock_factory.return_value = mock_provider
         result = questioner_node(state)
 
+    mock_provider.get_overview.assert_called_once()  # 第一轮走 get_overview，不走 retrieve
+    mock_provider.retrieve.assert_not_called()
     assert result["current_speaker"] == "answerer"
     assert result["turn_count"] == 1
     assert len(result["messages"]) == 1
@@ -742,14 +793,18 @@ def questioner_node(state: SessionState) -> dict:
         history = "\n".join(
             f"[{t['speaker']}]: {t['content']}" for t in state["messages"][-6:]
         )
-        # 可选：以最后一个 topic 为 query 去知识库取参考片段，辅助出题
         provider = create_provider(
             source_path=state["source_path"],
             strategy=state["context_strategy"],
             db_path=_get_db_path(state["source_path"]),
         )
-        last_topic = state["messages"][-1]["content"] if state["messages"] else "请介绍一下这份内容的整体结构"
-        context_chunks = provider.retrieve(last_topic)
+        # 第一轮：messages 为空，用 get_overview() 让提问者先了解源内容
+        # 后续轮：用上轮回答内容作 query，检索相关片段辅助出题
+        if not state["messages"]:
+            context_chunks = provider.get_overview()
+        else:
+            retrieval_query = state["messages"][-1]["content"]
+            context_chunks = provider.retrieve(retrieval_query)
         context_text = "\n\n---\n\n".join(context_chunks[:3])
         llm = ChatOpenAI(model="gpt-4o", temperature=0.7)
         response = llm.invoke([
