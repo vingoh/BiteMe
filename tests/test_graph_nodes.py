@@ -3,6 +3,14 @@ from unittest.mock import MagicMock, patch
 from biteme.graph.state import SessionState, Turn
 from biteme.graph.nodes import questioner_node, answerer_node
 
+def test_session_state_has_outline_field():
+    state = make_state(outline=["Q1", "Q2"])
+    assert state["outline"] == ["Q1", "Q2"]
+
+def test_session_state_outline_defaults_to_empty():
+    state = make_state()
+    assert state["outline"] == []
+
 def make_state(**kwargs) -> SessionState:
     defaults = dict(
         mode="learn",
@@ -13,6 +21,7 @@ def make_state(**kwargs) -> SessionState:
         max_turns=10,
         context_strategy="direct",
         source_path="/tmp/fake",
+        outline=[],
     )
     defaults.update(kwargs)
     return defaults  # type: ignore
