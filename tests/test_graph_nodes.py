@@ -153,3 +153,91 @@ def test_graph_entry_is_planner():
     assert "planner" in node_names
     assert "questioner" in node_names
     assert "answerer" in node_names
+
+
+def test_questioner_includes_outline_in_prompt(tmp_path):
+    outline = ["问题一：架构设计", "问题二：数据流"]
+    state = make_state(source_path=str(tmp_path), outline=outline)
+    (tmp_path / "a.py").write_text("def foo(): pass")
+
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value.content = "What does foo do?"
+
+    with patch("biteme.graph.nodes.ChatOpenAI", return_value=mock_llm), \
+         patch("biteme.graph.nodes.create_provider") as mock_factory:
+        mock_provider = MagicMock()
+        mock_provider.get_overview.return_value = ["def foo(): pass"]
+        mock_factory.return_value = mock_provider
+        questioner_node(state)
+
+    call_args = mock_llm.invoke.call_args[0][0]
+    human_message_content = call_args[1].content
+    assert "提问大纲" in human_message_content
+    assert "问题一：架构设计" in human_message_content
+
+def test_questioner_no_outline_section_when_empty(tmp_path):
+    state = make_state(source_path=str(tmp_path), outline=[])
+    (tmp_path / "a.py").write_text("def foo(): pass")
+
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value.content = "What does foo do?"
+
+    with patch("biteme.graph.nodes.ChatOpenAI", return_value=mock_llm), \
+         patch("biteme.graph.nodes.create_provider") as mock_factory:
+        mock_provider = MagicMock()
+        mock_provider.get_overview.return_value = ["def foo(): pass"]
+        mock_factory.return_value = mock_provider
+        questioner_node(state)
+
+    call_args = mock_llm.invoke.call_args[0][0]
+    human_message_content = call_args[1].content
+    assert "提问大纲" not in human_message_content
+
+def test_questioner_hitl_uses_outline_as_suggestion(tmp_path):
+    outline = ["第一个建议问题", "第二个建议问题"]
+    state = make_state(
+        source_path=str(tmp_path),
+        hitl_flags=["questioner"],
+        outline=outline,
+        turn_count=0,
+    )
+
+    interrupted_value = None
+
+    def fake_interrupt(msg):
+        nonlocal interrupted_value
+        interrupted_value = msg
+        raise Exception("interrupt_called")
+
+    with patch("biteme.graph.nodes.interrupt", side_effect=fake_interrupt):
+        try:
+            questioner_node(state)
+        except Exception:
+            pass
+
+    assert interrupted_value is not None
+    assert "第一个建议问题" in interrupted_value
+
+def test_questioner_hitl_fallback_when_outline_exhausted(tmp_path):
+    state = make_state(
+        source_path=str(tmp_path),
+        hitl_flags=["questioner"],
+        outline=["唯一问题"],
+        turn_count=5,  # beyond outline range
+    )
+
+    interrupted_value = None
+
+    def fake_interrupt(msg):
+        nonlocal interrupted_value
+        interrupted_value = msg
+        raise Exception("interrupt_called")
+
+    with patch("biteme.graph.nodes.interrupt", side_effect=fake_interrupt):
+        try:
+            questioner_node(state)
+        except Exception:
+            pass
+
+    assert interrupted_value is not None
+    assert "提问者" in interrupted_value

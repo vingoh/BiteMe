@@ -58,7 +58,17 @@ def planner_node(state: SessionState) -> dict:
 
 def questioner_node(state: SessionState) -> dict:
     if "questioner" in state["hitl_flags"]:
-        human_text = interrupt(">>> [提问者] 请输入你的问题：")
+        outline = state.get("outline", [])
+        turn_idx = state["turn_count"]
+        if outline and turn_idx < len(outline):
+            suggested = outline[turn_idx]
+            prompt_msg = (
+                f">>> [提问者] 建议问题（第 {turn_idx + 1} 轮）：{suggested}\n"
+                f"（直接回车使用建议问题，或输入新问题）"
+            )
+        else:
+            prompt_msg = ">>> [提问者] 请输入你的问题："
+        human_text = interrupt(prompt_msg)
         turn: Turn = {"speaker": "human", "content": human_text, "retrieved_chunks": []}
     else:
         prompts = get_prompts(state["mode"])
@@ -78,10 +88,24 @@ def questioner_node(state: SessionState) -> dict:
             retrieval_query = state["messages"][-1]["content"]
             context_chunks = provider.retrieve(retrieval_query)
         context_text = "\n\n---\n\n".join(context_chunks[:3])
+
+        outline = state.get("outline", [])
+        outline_section = ""
+        if outline:
+            outline_text = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(outline))
+            outline_section = f"\n\n提问大纲（供参考，请结合对话历史灵活使用，不必按顺序）：\n{outline_text}"
+
         llm = ChatOpenAI(model=settings.openai_model, temperature=0.7)
         response = llm.invoke([
             SystemMessage(content=prompts["questioner"]),
-            HumanMessage(content=f"对话历史：\n{history}\n\n参考内容摘要：\n{context_text[:2000]}\n\n请提出下一个问题。"),
+            HumanMessage(
+                content=(
+                    f"对话历史：\n{history}"
+                    f"{outline_section}"
+                    f"\n\n参考内容摘要：\n{context_text[:2000]}"
+                    f"\n\n请提出下一个问题。"
+                )
+            ),
         ])
         turn = {"speaker": "questioner", "content": response.content, "retrieved_chunks": []}
 
