@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 from biteme.graph.state import SessionState, Turn
 from biteme.graph.nodes import questioner_node, answerer_node
+from biteme.graph.prompts import get_prompts
 
 def test_session_state_has_outline_field():
     state = make_state(outline=["Q1", "Q2"])
@@ -69,3 +70,16 @@ def test_answerer_node_always_retrieves(tmp_path):
     assert result["current_speaker"] == "questioner"
     assert result["messages"][-1]["speaker"] == "answerer"
     assert len(result["messages"][-1]["retrieved_chunks"]) > 0
+
+
+def test_get_prompts_learn_has_planner():
+    prompts = get_prompts("learn")
+    assert "planner" in prompts
+    assert isinstance(prompts["planner"], str)
+    assert len(prompts["planner"]) > 0
+
+def test_get_prompts_interview_has_planner():
+    prompts = get_prompts("interview")
+    assert "planner" in prompts
+    assert isinstance(prompts["planner"], str)
+    assert len(prompts["planner"]) > 0
