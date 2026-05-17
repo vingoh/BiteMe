@@ -1,6 +1,9 @@
+import re
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.types import interrupt
+from rich.console import Console
+from rich.panel import Panel
 from .state import SessionState, Turn
 from .prompts import get_prompts
 from ..context.factory import create_provider
@@ -11,6 +14,46 @@ def _get_db_path(source_path: str) -> str:
     import hashlib
     h = hashlib.md5(source_path.encode()).hexdigest()[:8]
     return str(settings.biteme_home / "indexes" / h)
+
+
+def _parse_outline(text: str) -> list[str]:
+    """Parse numbered list from LLM output into plain question strings."""
+    questions = []
+    for line in text.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        cleaned = re.sub(r'^\d+[\.\)]\s*', '', line)
+        if cleaned:
+            questions.append(cleaned)
+    return questions
+
+
+def planner_node(state: SessionState) -> dict:
+    prompts = get_prompts(state["mode"])
+    n = state["max_turns"] + 2
+    provider = create_provider(
+        source_path=state["source_path"],
+        strategy=state["context_strategy"],
+        db_path=_get_db_path(state["source_path"]),
+    )
+    overview_chunks = provider.get_overview()
+    context_text = "\n\n---\n\n".join(overview_chunks[:3])
+
+    llm = ChatOpenAI(model=settings.openai_model, temperature=0.7)
+    response = llm.invoke([
+        SystemMessage(content=prompts["planner"]),
+        HumanMessage(content=f"文档摘要：\n{context_text[:3000]}\n\n请生成 {n} 个问题。"),
+    ])
+
+    outline = _parse_outline(response.content)
+
+    title = "提问大纲" if state["mode"] == "learn" else "面试大纲"
+    outline_display = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(outline))
+    console = Console()
+    console.print(Panel(outline_display, title=f"[cyan]{title}[/cyan]"))
+
+    return {"outline": outline}
 
 
 def questioner_node(state: SessionState) -> dict:
@@ -60,8 +103,6 @@ def answerer_node(state: SessionState) -> dict:
 
     if "answerer" in state["hitl_flags"]:
         import click
-        from rich.console import Console
-        from rich.panel import Panel
         console = Console()
 
         def _make_preview(chunks: list[str], max_lines: int = 3, max_chars: int = 200) -> str:
