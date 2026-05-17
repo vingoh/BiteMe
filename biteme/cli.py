@@ -40,7 +40,7 @@ def run(
     mode: Annotated[str, typer.Option(help="learn 或 interview")] = "learn",
     hitl: Annotated[str, typer.Option(help="none/questioner/answerer/both")] = "none",
     strategy: Annotated[str, typer.Option(help="auto/direct/rag")] = "auto",
-    turns: Annotated[int, typer.Option(help="最大对话轮数")] = 10,
+    turns: Annotated[int, typer.Option(help="最大对话轮数")] = 5,
 ):
     """启动新的双 Agent 对话会话"""
     path = Path(source)
