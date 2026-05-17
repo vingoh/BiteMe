@@ -2,7 +2,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from .state import SessionState
-from .nodes import questioner_node, answerer_node
+from .nodes import planner_node, questioner_node, answerer_node
 
 
 def _should_continue(state: SessionState) -> str:
@@ -13,10 +13,12 @@ def _should_continue(state: SessionState) -> str:
 
 def build_graph(checkpointer: SqliteSaver) -> StateGraph:
     builder = StateGraph(SessionState)
+    builder.add_node("planner", planner_node)
     builder.add_node("questioner", questioner_node)
     builder.add_node("answerer", answerer_node)
 
-    builder.set_entry_point("questioner")
+    builder.set_entry_point("planner")
+    builder.add_edge("planner", "questioner")
     builder.add_edge("questioner", "answerer")
     builder.add_conditional_edges(
         "answerer",

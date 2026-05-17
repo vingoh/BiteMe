@@ -72,6 +72,7 @@ def run(
         "max_turns": turns,
         "context_strategy": strategy,
         "source_path": str(path.resolve()),
+        "outline": [],
     }
 
     with get_checkpoint_saver(session_id) as checkpointer:
@@ -112,6 +113,19 @@ def list_cmd():
     console.print(table)
 
 
+def _extract_suggestion(prompt_text: str) -> str:
+    """从 HITL 提示文字中提取建议问题。
+
+    提示格式：'>>> [提问者] 建议问题（第 N 轮）：{question}\\n（直接回车使用建议问题，或输入新问题）'
+    """
+    if "建议问题" in prompt_text and "：" in prompt_text:
+        parts = prompt_text.split("：", 1)
+        if len(parts) > 1:
+            suggestion = parts[1].split("\n")[0].strip()
+            return suggestion
+    return ""
+
+
 def _print_turn(turn: Turn) -> None:
     """Print a single conversation turn."""
     speaker_color = {
@@ -150,6 +164,8 @@ def _run_graph(graph, initial_state, config):
                 prompt_text = str(interrupt_obj.value)
                 console.print(f"\n[bold yellow]{prompt_text}[/bold yellow]")
                 user_input = typer.prompt("", prompt_suffix="> ")
+                if not user_input.strip():
+                    user_input = _extract_suggestion(prompt_text)
                 pending = Command(resume=user_input)
                 interrupted = True
                 break

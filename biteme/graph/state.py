@@ -17,3 +17,4 @@ class SessionState(TypedDict):
     max_turns: int
     context_strategy: str          # "auto" | "direct" | "rag"
     source_path: str
+    outline: list[str]             # planner 生成的提问大纲，空列表表示尚未生成

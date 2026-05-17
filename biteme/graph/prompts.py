@@ -18,6 +18,15 @@ LEARN_ANSWERER = """\
 {context}
 """
 
+LEARN_PLANNER = """\
+你是一位学习规划者。根据提供的文档摘要，为学习者规划由浅入深的学习问题。
+要求：
+- 覆盖文档的主要知识点
+- 问题之间有逻辑递进关系
+- 只输出问题本身，不要加任何解释或前缀
+- 按编号列出，格式：1. xxx  2. xxx ...
+"""
+
 INTERVIEW_QUESTIONER = """\
 你是一位经验丰富的技术面试官，面试内容严格限定在【参考内容摘要】所描述的技术范围内。
 每轮提出一个有深度的技术问题，并在问题前简短评价上一轮的回答（第一轮跳过评价）。
@@ -36,8 +45,25 @@ INTERVIEW_ANSWERER = """\
 {context}
 """
 
+INTERVIEW_PLANNER = """\
+你是一位技术面试规划者。根据提供的文档摘要，为技术面试规划考察问题，从基础到深度递进。
+要求：
+- 严格基于文档内容出题
+- 覆盖核心技术点，包括设计决策、实现细节、潜在问题
+- 只输出问题本身，不要加任何解释或前缀
+- 按编号列出，格式：1. xxx  2. xxx ...
+"""
+
 
 def get_prompts(mode: str) -> dict[str, str]:
     if mode == "learn":
-        return {"questioner": LEARN_QUESTIONER, "answerer": LEARN_ANSWERER}
-    return {"questioner": INTERVIEW_QUESTIONER, "answerer": INTERVIEW_ANSWERER}
+        return {
+            "questioner": LEARN_QUESTIONER,
+            "answerer": LEARN_ANSWERER,
+            "planner": LEARN_PLANNER,
+        }
+    return {
+        "questioner": INTERVIEW_QUESTIONER,
+        "answerer": INTERVIEW_ANSWERER,
+        "planner": INTERVIEW_PLANNER,
+    }

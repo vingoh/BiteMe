@@ -1,6 +1,9 @@
+import re
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.types import interrupt
+from rich.console import Console
+from rich.panel import Panel
 from .state import SessionState, Turn
 from .prompts import get_prompts
 from ..context.factory import create_provider
@@ -13,9 +16,59 @@ def _get_db_path(source_path: str) -> str:
     return str(settings.biteme_home / "indexes" / h)
 
 
+def _parse_outline(text: str) -> list[str]:
+    """Parse numbered list from LLM output into plain question strings."""
+    questions = []
+    for line in text.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        cleaned = re.sub(r'^\d+[\.\)]\s*', '', line)
+        if cleaned:
+            questions.append(cleaned)
+    return questions
+
+
+def planner_node(state: SessionState) -> dict:
+    prompts = get_prompts(state["mode"])
+    n = state["max_turns"] + 2
+    provider = create_provider(
+        source_path=state["source_path"],
+        strategy=state["context_strategy"],
+        db_path=_get_db_path(state["source_path"]),
+    )
+    overview_chunks = provider.get_overview()
+    context_text = "\n\n---\n\n".join(overview_chunks[:3])
+
+    llm = ChatOpenAI(model=settings.openai_model, temperature=0.7)
+    response = llm.invoke([
+        SystemMessage(content=prompts["planner"]),
+        HumanMessage(content=f"文档摘要：\n{context_text[:3000]}\n\n请生成 {n} 个问题。"),
+    ])
+
+    outline = _parse_outline(response.content)
+
+    title = "提问大纲" if state["mode"] == "learn" else "面试大纲"
+    outline_display = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(outline))
+    console = Console()
+    console.print(Panel(outline_display, title=f"[cyan]{title}[/cyan]"))
+
+    return {"outline": outline}
+
+
 def questioner_node(state: SessionState) -> dict:
     if "questioner" in state["hitl_flags"]:
-        human_text = interrupt(">>> [提问者] 请输入你的问题：")
+        outline = state.get("outline", [])
+        turn_idx = state["turn_count"]
+        if outline and turn_idx < len(outline):
+            suggested = outline[turn_idx]
+            prompt_msg = (
+                f">>> [提问者] 建议问题（第 {turn_idx + 1} 轮）：{suggested}\n"
+                f"（直接回车使用建议问题，或输入新问题）"
+            )
+        else:
+            prompt_msg = ">>> [提问者] 请输入你的问题："
+        human_text = interrupt(prompt_msg)
         turn: Turn = {"speaker": "human", "content": human_text, "retrieved_chunks": []}
     else:
         prompts = get_prompts(state["mode"])
@@ -35,10 +88,24 @@ def questioner_node(state: SessionState) -> dict:
             retrieval_query = state["messages"][-1]["content"]
             context_chunks = provider.retrieve(retrieval_query)
         context_text = "\n\n---\n\n".join(context_chunks[:3])
+
+        outline = state.get("outline", [])
+        outline_section = ""
+        if outline:
+            outline_text = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(outline))
+            outline_section = f"\n\n提问大纲（供参考，请结合对话历史灵活使用，不必按顺序）：\n{outline_text}"
+
         llm = ChatOpenAI(model=settings.openai_model, temperature=0.7)
         response = llm.invoke([
             SystemMessage(content=prompts["questioner"]),
-            HumanMessage(content=f"对话历史：\n{history}\n\n参考内容摘要：\n{context_text[:2000]}\n\n请提出下一个问题。"),
+            HumanMessage(
+                content=(
+                    f"对话历史：\n{history}"
+                    f"{outline_section}"
+                    f"\n\n参考内容摘要：\n{context_text[:2000]}"
+                    f"\n\n请提出下一个问题。"
+                )
+            ),
         ])
         turn = {"speaker": "questioner", "content": response.content, "retrieved_chunks": []}
 
@@ -60,8 +127,6 @@ def answerer_node(state: SessionState) -> dict:
 
     if "answerer" in state["hitl_flags"]:
         import click
-        from rich.console import Console
-        from rich.panel import Panel
         console = Console()
 
         def _make_preview(chunks: list[str], max_lines: int = 3, max_chars: int = 200) -> str:
