@@ -144,3 +144,12 @@ def test_planner_node_interview_mode(tmp_path):
 
     assert len(result["outline"]) == 4
     assert "outline" in result
+
+
+def test_graph_entry_is_planner():
+    from biteme.graph.graph import build_graph
+    graph = build_graph(checkpointer=None)
+    node_names = set(graph.nodes.keys())
+    assert "planner" in node_names
+    assert "questioner" in node_names
+    assert "answerer" in node_names
