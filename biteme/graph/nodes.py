@@ -35,7 +35,7 @@ def questioner_node(state: SessionState) -> dict:
             retrieval_query = state["messages"][-1]["content"]
             context_chunks = provider.retrieve(retrieval_query)
         context_text = "\n\n---\n\n".join(context_chunks[:3])
-        llm = ChatOpenAI(model="gpt-4o", temperature=0.7)
+        llm = ChatOpenAI(model=settings.openai_model, temperature=0.7)
         response = llm.invoke([
             SystemMessage(content=prompts["questioner"]),
             HumanMessage(content=f"对话历史：\n{history}\n\n参考内容摘要：\n{context_text[:2000]}\n\n请提出下一个问题。"),
@@ -73,7 +73,7 @@ def answerer_node(state: SessionState) -> dict:
         history = "\n".join(
             f"[{t['speaker']}]: {t['content']}" for t in state["messages"][-6:]
         )
-        llm = ChatOpenAI(model="gpt-4o", temperature=0.3)
+        llm = ChatOpenAI(model=settings.openai_model, temperature=0.3)
         response = llm.invoke([
             SystemMessage(content=answerer_prompt),
             HumanMessage(content=f"对话历史：\n{history}\n\n请回答最后那个问题。"),

@@ -1,0 +1,29 @@
+---
+description: 所有测试必须使用 conda agent 环境运行
+alwaysApply: true
+---
+
+# 测试环境约束
+
+运行任何测试时，必须使用名为 `agent` 的 conda 环境。
+
+## 规则
+
+- 运行测试前，先激活 `agent` 环境：
+  ```bash
+  conda run -n agent <test_command>
+  # 或
+  conda activate agent && <test_command>
+  ```
+- 禁止在系统默认 Python 或其他 conda 环境下运行测试。
+
+## 示例
+
+```bash
+# ✅ 正确
+conda run -n agent pytest tests/
+
+# ❌ 错误
+pytest tests/
+python -m pytest tests/
+```

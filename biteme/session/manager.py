@@ -1,5 +1,6 @@
 import uuid
 import json
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -31,6 +32,8 @@ def list_sessions() -> list[dict]:
             pass
     return sessions
 
-def get_checkpoint_saver(session_id: str) -> SqliteSaver:
+@contextmanager
+def get_checkpoint_saver(session_id: str):
     db_path = settings.sessions_dir / f"{session_id}.db"
-    return SqliteSaver.from_conn_string(str(db_path))
+    with SqliteSaver.from_conn_string(str(db_path)) as saver:
+        yield saver

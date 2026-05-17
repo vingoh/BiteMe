@@ -1,3 +1,5 @@
 .DS_Store
 .worktrees/
 .idea/
+*.pyc
+.env

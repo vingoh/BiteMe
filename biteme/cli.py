@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -10,7 +10,7 @@ from .config import settings
 from .indexing.pipeline import build_index
 from .session.manager import create_session, list_sessions, get_checkpoint_saver
 from .graph.graph import build_graph
-from .graph.state import SessionState
+from .graph.state import SessionState, Turn
 
 app = typer.Typer(name="biteme", help="双 Agent 问答系统 CLI")
 console = Console()
@@ -74,11 +74,10 @@ def run(
         "source_path": str(path.resolve()),
     }
 
-    checkpointer = get_checkpoint_saver(session_id)
-    graph = build_graph(checkpointer=checkpointer)
-    config = {"configurable": {"thread_id": session_id}}
-
-    _run_graph(graph, initial_state, config)
+    with get_checkpoint_saver(session_id) as checkpointer:
+        graph = build_graph(checkpointer=checkpointer)
+        config = {"configurable": {"thread_id": session_id}}
+        _run_graph(graph, initial_state, config)
 
 
 @app.command()
@@ -86,10 +85,10 @@ def resume(
     session_id: Annotated[str, typer.Argument(help="要恢复的会话 ID")],
 ):
     """恢复上次中断的会话"""
-    checkpointer = get_checkpoint_saver(session_id)
-    graph = build_graph(checkpointer=checkpointer)
-    config = {"configurable": {"thread_id": session_id}}
-    _run_graph(graph, None, config)
+    with get_checkpoint_saver(session_id) as checkpointer:
+        graph = build_graph(checkpointer=checkpointer)
+        config = {"configurable": {"thread_id": session_id}}
+        _run_graph(graph, None, config)
 
 
 @app.command("list")
@@ -113,23 +112,47 @@ def list_cmd():
     console.print(table)
 
 
-def _run_graph(graph, initial_state, config):
-    """运行图，处理 HITL interrupt 和流式输出。"""
-    stream = (
-        graph.stream(initial_state, config=config, stream_mode="values")
-        if initial_state
-        else graph.stream(Command(resume=None), config=config, stream_mode="values")
+def _print_turn(turn: Turn) -> None:
+    """Print a single conversation turn."""
+    speaker_color = {
+        "questioner": "blue",
+        "answerer": "green",
+        "human": "yellow",
+    }.get(turn["speaker"], "white")
+    console.print(
+        f"\n[bold {speaker_color}][{turn['speaker'].upper()}][/bold {speaker_color}]"
     )
+    console.print(turn["content"])
+    if turn.get("retrieved_chunks"):
+        console.print(f"[dim]（引用了 {len(turn['retrieved_chunks'])} 个片段）[/dim]")
 
-    for state in stream:
-        if state.get("messages"):
-            last = state["messages"][-1]
-            speaker_color = {
-                "questioner": "blue",
-                "answerer": "green",
-                "human": "yellow",
-            }.get(last["speaker"], "white")
-            console.print(f"\n[bold {speaker_color}][{last['speaker'].upper()}][/bold {speaker_color}]")
-            console.print(last["content"])
-            if last.get("retrieved_chunks"):
-                console.print(f"[dim]（引用了 {len(last['retrieved_chunks'])} 个片段）[/dim]")
+
+def _run_graph(graph, initial_state, config):
+    """运行图，循环处理 HITL interrupt 与流式输出。"""
+    pending = initial_state if initial_state is not None else None
+    printed_count = 0
+
+    while True:
+        stream = graph.stream(pending, config=config, stream_mode="values")
+
+        interrupted = False
+        for state in stream:
+            if not isinstance(state, dict):
+                continue
+            print(f"state: {state}")
+            msgs = state.get("messages") or []
+            while printed_count < len(msgs):
+                _print_turn(msgs[printed_count])
+                printed_count += 1
+
+            if "__interrupt__" in state:
+                interrupt_obj = state["__interrupt__"][0]
+                prompt_text = str(interrupt_obj.value)
+                console.print(f"\n[bold yellow]{prompt_text}[/bold yellow]")
+                user_input = typer.prompt("", prompt_suffix="> ")
+                pending = Command(resume=user_input)
+                interrupted = True
+                break
+
+        if not interrupted:
+            break
