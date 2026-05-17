@@ -139,7 +139,7 @@ def _run_graph(graph, initial_state, config):
         for state in stream:
             if not isinstance(state, dict):
                 continue
-            print(f"state: {state}")
+            # print(f"state: {state}")
             msgs = state.get("messages") or []
             while printed_count < len(msgs):
                 _print_turn(msgs[printed_count])

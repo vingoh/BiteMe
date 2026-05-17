@@ -59,10 +59,35 @@ def answerer_node(state: SessionState) -> dict:
     chunks = provider.retrieve(last_question)  # always called, never skipped
 
     if "answerer" in state["hitl_flags"]:
+        import click
         from rich.console import Console
         from rich.panel import Panel
         console = Console()
-        console.print(Panel("\n".join(chunks[:3]), title="[yellow]检索到的相关内容[/yellow]"))
+
+        def _make_preview(chunks: list[str], max_lines: int = 3, max_chars: int = 200) -> str:
+            if not chunks:
+                return ""
+            first = chunks[0]
+            lines = first.splitlines()
+            preview = "\n".join(lines[:max_lines])
+            if len(preview) > max_chars:
+                preview = preview[:max_chars]
+            truncated = len(lines) > max_lines or len(first) > max_chars or len(chunks) > 1
+            return preview + (" …" if truncated else "")
+
+        preview_text = _make_preview(chunks)
+        console.print(Panel(
+            preview_text,
+            title="[yellow]检索到的相关内容[/yellow] [dim]▸ 折叠[/dim]",
+        ))
+        console.print("[dim]按 [bold]e[/bold] 展开全部内容，按任意键继续作答[/dim]")
+        key = click.getchar()
+        if key.lower() == "e":
+            console.print(Panel(
+                "\n\n─────\n\n".join(chunks[:3]),
+                title="[yellow]检索到的相关内容[/yellow] [dim]▾ 展开[/dim]",
+            ))
+
         human_text = interrupt(">>> [回答者] 请输入你的回答：")
         turn: Turn = {"speaker": "human", "content": human_text, "retrieved_chunks": chunks}
     else:
