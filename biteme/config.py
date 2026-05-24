@@ -11,6 +11,7 @@ class Settings:
         self.biteme_home: Path = Path(os.getenv("BITEME_HOME", "~/.biteme")).expanduser()
         self.indexes_dir: Path = self.biteme_home / "indexes"
         self.sessions_dir: Path = self.biteme_home / "sessions"
+        self.github_token: str = os.getenv("GITHUB_TOKEN", "")
 
     def ensure_dirs(self) -> None:
         self.biteme_home.mkdir(parents=True, exist_ok=True)

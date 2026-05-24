@@ -14,3 +14,15 @@ def test_biteme_home_custom(tmp_path, monkeypatch):
     import importlib, biteme.config as cfg
     importlib.reload(cfg)
     assert cfg.settings.biteme_home == tmp_path
+
+def test_github_token_default(monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    import importlib, biteme.config as cfg
+    importlib.reload(cfg)
+    assert cfg.settings.github_token == ""
+
+def test_github_token_custom(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_test123")
+    import importlib, biteme.config as cfg
+    importlib.reload(cfg)
+    assert cfg.settings.github_token == "ghp_test123"
