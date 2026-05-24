@@ -9,12 +9,19 @@ from ..config import settings
 
 
 def _parse_repo(repo_url: str) -> str:
-    """Normalize 'https://github.com/owner/repo' or 'owner/repo' → 'owner/repo'."""
+    """Normalize GitHub URL or shorthand → 'owner/repo'."""
     repo_url = repo_url.strip().rstrip("/")
+    # Strip browser URL subpaths like /tree/main, /blob/main/file.py etc.
+    repo_url = re.sub(
+        r"/(tree|blob|commits?|pulls?|issues?|actions?|releases?|wiki|discussions?)(/.*)?$",
+        "",
+        repo_url,
+    )
     match = re.search(r"github\.com/([^/]+/[^/]+?)(?:\.git)?$", repo_url)
     if match:
         return match.group(1)
-    return repo_url
+    # Handle plain 'owner/repo' or 'owner/repo.git'
+    return re.sub(r"\.git$", "", repo_url)
 
 
 def _headers(accept: str = "application/vnd.github+json") -> dict:
@@ -66,7 +73,8 @@ def github_read_file(repo_url: str, file_path: str, ref: str = "HEAD") -> str:
         data = r.json()
         if data.get("encoding") == "base64":
             return base64.b64decode(data["content"]).decode("utf-8", errors="replace")
-        return data.get("content", "")
+        encoding = data.get("encoding", "unknown")
+        return f"Error: unsupported encoding '{encoding}' returned by GitHub API"
     except requests.HTTPError as e:
         return f"Error: GitHub API returned {e.response.status_code} for {url}"
     except Exception as e:
@@ -79,6 +87,9 @@ def github_search_code(repo_url: str, query: str, max_results: int = 20) -> str:
 
     Returns a JSON array with up to max_results items, each containing 'path', 'url', 'fragment'.
     repo_url accepts 'https://github.com/owner/repo' or 'owner/repo'.
+
+    Note: GitHub code search is heavily rate-limited without a token (10 req/min anonymous vs
+    30 req/min authenticated). Set GITHUB_TOKEN for reliable use.
     """
     repo = _parse_repo(repo_url)
     url = "https://api.github.com/search/code"

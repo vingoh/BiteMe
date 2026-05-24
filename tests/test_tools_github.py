@@ -94,3 +94,31 @@ class TestGithubSearchCode:
         with patch("biteme.tools.github.requests.get", return_value=_mock_response(422, {})):
             result = github_search_code.invoke({"repo_url": "owner/repo", "query": "foo"})
         assert result.startswith("Error:")
+
+
+# ── _parse_repo ───────────────────────────────────────────────────────────────
+
+class TestParseRepo:
+    def test_full_url(self):
+        from biteme.tools.github import _parse_repo
+        assert _parse_repo("https://github.com/owner/repo") == "owner/repo"
+
+    def test_full_url_with_tree_subpath(self):
+        from biteme.tools.github import _parse_repo
+        assert _parse_repo("https://github.com/owner/repo/tree/main") == "owner/repo"
+
+    def test_full_url_with_blob_subpath(self):
+        from biteme.tools.github import _parse_repo
+        assert _parse_repo("https://github.com/owner/repo/blob/main/README.md") == "owner/repo"
+
+    def test_short_form(self):
+        from biteme.tools.github import _parse_repo
+        assert _parse_repo("owner/repo") == "owner/repo"
+
+    def test_short_form_with_git_suffix(self):
+        from biteme.tools.github import _parse_repo
+        assert _parse_repo("owner/repo.git") == "owner/repo"
+
+    def test_full_url_with_git_suffix(self):
+        from biteme.tools.github import _parse_repo
+        assert _parse_repo("https://github.com/owner/repo.git") == "owner/repo"
