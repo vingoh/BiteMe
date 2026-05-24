@@ -87,10 +87,29 @@ self.github_token: str = os.getenv("GITHUB_TOKEN", "")
 
 ---
 
+## 复用现有社区工具
+
+`langchain-community` 已有以下现成实现，直接复用：
+
+- **`FileManagementToolkit`**（`langchain_community.agent_toolkits.file_management`）：提供 `ReadFileTool`、`WriteFileTool`、`FileSearchTool`（按文件名搜索），对应本设计中的 `read_file`、`write_file`、`search_files_by_name`。
+- **`GitHubToolkit`** 不采用：其认证方式为 GitHub App（需 `GITHUB_APP_ID` + `GITHUB_APP_PRIVATE_KEY`），本设计改用 Personal Access Token 自定义实现，更轻量。
+
+最终实现分工：
+
+| 工具 | 来源 |
+|---|---|
+| `read_file` | `FileManagementToolkit.ReadFileTool` |
+| `write_file` | `FileManagementToolkit.WriteFileTool` |
+| `search_files_by_name` | `FileManagementToolkit.FileSearchTool` |
+| `search_files_by_content` | 自定义（Python 标准库） |
+| `github_list_tree` | 自定义（`requests` + GitHub REST API） |
+| `github_read_file` | 自定义（`requests` + GitHub REST API） |
+| `github_search_code` | 自定义（`requests` + GitHub Search API） |
+
 ## 依赖
 
-- `requests`：GitHub API HTTP 调用（项目已有或需新增）
-- 无其他新增外部依赖；本地文件操作均使用 Python 标准库
+- `requests`：GitHub API HTTP 调用
+- `langchain-community`：提供 `FileManagementToolkit`（项目已用 `langchain_openai`，`langchain-community` 应已在环境中）
 
 ---
 
