@@ -36,8 +36,8 @@ def search_files_by_content(
         context_lines: Number of lines to show before and after each match.
     """
     root = Path(directory)
-    if not root.exists():
-        return f"Error: directory '{directory}' does not exist"
+    if not root.is_dir():
+        return f"Error: '{directory}' is not a directory or does not exist"
 
     pattern = re.compile(re.escape(query))
 
@@ -53,9 +53,10 @@ def search_files_by_content(
         for i, line in enumerate(lines):
             if not pattern.search(line):
                 continue
-            block = [f"{rel}:{i + 1}: {line}"]
+            block = []
             for j in range(max(0, i - context_lines), i):
                 block.append(f"  {j + 1}: {lines[j]}")
+            block.append(f"{rel}:{i + 1}: {line}")
             for j in range(i + 1, min(len(lines), i + 1 + context_lines)):
                 block.append(f"  {j + 1}: {lines[j]}")
             results.append("\n".join(block))

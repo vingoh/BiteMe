@@ -24,6 +24,8 @@ class TestSearchFilesByContent:
         assert "b.txt:3:" in result
         assert "line2" in result
         assert "line4" in result
+        # Verify chronological order: line2 before match, match before line4
+        assert result.index("line2") < result.index("MATCH") < result.index("line4")
 
     def test_file_glob_filters(self, tmp_path):
         from biteme.tools.filesystem import search_files_by_content
