@@ -172,7 +172,7 @@ def test_questioner_includes_outline_in_prompt(tmp_path):
 
     call_args = mock_llm.invoke.call_args[0][0]
     human_message_content = call_args[1].content
-    assert "提问大纲" in human_message_content
+    assert "本轮话题方向" in human_message_content
     assert "问题一：架构设计" in human_message_content
 
 def test_questioner_no_outline_section_when_empty(tmp_path):
@@ -191,7 +191,7 @@ def test_questioner_no_outline_section_when_empty(tmp_path):
 
     call_args = mock_llm.invoke.call_args[0][0]
     human_message_content = call_args[1].content
-    assert "提问大纲" not in human_message_content
+    assert "本轮话题方向" not in human_message_content
 
 def test_questioner_hitl_uses_outline_as_suggestion(tmp_path):
     outline = ["第一个建议问题", "第二个建议问题"]

@@ -91,9 +91,13 @@ def questioner_node(state: SessionState) -> dict:
 
         outline = state.get("outline", [])
         outline_section = ""
-        if outline:
-            outline_text = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(outline))
-            outline_section = f"\n\n提问大纲（供参考，请结合对话历史灵活使用，不必按顺序）：\n{outline_text}"
+        turn_idx = state["turn_count"]
+        if outline and turn_idx < len(outline):
+            current_topic = outline[turn_idx]
+            outline_section = (
+                f"\n\n本轮话题方向（仅供参考，请结合上一轮回答内容自由发挥，"
+                f"不要照搬原文，提出你自己的问题）：{current_topic}"
+            )
 
         llm = ChatOpenAI(model=settings.openai_model, temperature=0.7)
         response = llm.invoke([
