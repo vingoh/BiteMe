@@ -6,8 +6,10 @@ from rich.console import Console
 from rich.panel import Panel
 from .state import SessionState, Turn
 from .prompts import get_prompts
+from langchain.agents import create_agent
 from ..context.factory import create_provider
 from ..config import settings
+from ..tools import READONLY_TOOLS
 
 
 def _get_db_path(source_path: str) -> str:
@@ -162,17 +164,28 @@ def answerer_node(state: SessionState) -> dict:
     else:
         prompts = get_prompts(state["mode"])
         context_text = "\n\n---\n\n".join(chunks[:5])
-        answerer_prompt = prompts["answerer"].format(context=context_text)
 
         history = "\n".join(
             f"[{t['speaker']}]: {t['content']}" for t in state["messages"][-6:]
         )
         llm = ChatOpenAI(model=settings.openai_model, temperature=0.3)
-        response = llm.invoke([
-            SystemMessage(content=answerer_prompt),
-            HumanMessage(content=f"对话历史：\n{history}\n\n请回答最后那个问题。"),
-        ])
-        turn = {"speaker": "answerer", "content": response.content, "retrieved_chunks": chunks}
+        react_agent = create_agent(
+            model=llm,
+            tools=READONLY_TOOLS,
+            system_prompt=prompts["answerer"],
+        )
+        result = react_agent.invoke(
+            {"messages": [HumanMessage(
+                content=(
+                    f"检索到的相关内容：\n{context_text}"
+                    f"\n\n对话历史：\n{history}"
+                    f"\n\n请回答最后那个问题。"
+                )
+            )]},
+            recursion_limit=12,
+        )
+        final_answer = result["messages"][-1].content
+        turn = {"speaker": "answerer", "content": final_answer, "retrieved_chunks": chunks}
 
     return {
         "messages": state["messages"] + [turn],

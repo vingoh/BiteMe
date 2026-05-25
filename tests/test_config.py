@@ -26,3 +26,15 @@ def test_github_token_custom(monkeypatch):
     import importlib, biteme.config as cfg
     importlib.reload(cfg)
     assert cfg.settings.github_token == "ghp_test123"
+
+def test_tavily_api_key_default(monkeypatch):
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    import importlib, biteme.config as cfg
+    importlib.reload(cfg)
+    assert cfg.settings.tavily_api_key == ""
+
+def test_tavily_api_key_custom(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-test123")
+    import importlib, biteme.config as cfg
+    importlib.reload(cfg)
+    assert cfg.settings.tavily_api_key == "tvly-test123"

@@ -12,6 +12,7 @@ class Settings:
         self.indexes_dir: Path = self.biteme_home / "indexes"
         self.sessions_dir: Path = self.biteme_home / "sessions"
         self.github_token: str = os.getenv("GITHUB_TOKEN", "")
+        self.tavily_api_key: str = os.getenv("TAVILY_API_KEY", "")
 
     def ensure_dirs(self) -> None:
         self.biteme_home.mkdir(parents=True, exist_ok=True)

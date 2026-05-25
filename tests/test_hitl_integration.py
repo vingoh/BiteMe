@@ -61,7 +61,13 @@ def test_questioner_hitl_resume_then_answerer_runs(tmp_path):
     mock_llm = MagicMock()
     mock_llm.invoke.return_value.content = "The function returns None."
 
-    with patch("biteme.graph.nodes.ChatOpenAI", return_value=mock_llm):
+    mock_react_agent = MagicMock()
+    mock_react_agent.invoke.return_value = {
+        "messages": [MagicMock(content="The function returns None.")]
+    }
+
+    with patch("biteme.graph.nodes.ChatOpenAI", return_value=mock_llm), \
+         patch("biteme.graph.nodes.create_agent", return_value=mock_react_agent):
         # First pass: stop at interrupt
         pending = initial_state
         for state in graph.stream(pending, config=config, stream_mode="values"):
@@ -113,9 +119,15 @@ def test_user_input_flows_through_to_answerer(tmp_path):
 
     from biteme.cli import _run_graph
 
-    with patch("biteme.graph.nodes.ChatOpenAI", return_value=mock_llm), patch(
-        "biteme.graph.nodes.create_provider", return_value=mock_provider
-    ), patch("biteme.cli.typer.prompt", return_value=user_question):
+    mock_react_agent = MagicMock()
+    mock_react_agent.invoke.return_value = {
+        "messages": [MagicMock(content="It does nothing.")]
+    }
+
+    with patch("biteme.graph.nodes.ChatOpenAI", return_value=mock_llm), \
+         patch("biteme.graph.nodes.create_agent", return_value=mock_react_agent), \
+         patch("biteme.graph.nodes.create_provider", return_value=mock_provider), \
+         patch("biteme.cli.typer.prompt", return_value=user_question):
         _run_graph(graph, initial_state, config)
 
     final_state = graph.get_state(config).values

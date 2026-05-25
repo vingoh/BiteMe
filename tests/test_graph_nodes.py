@@ -49,6 +49,7 @@ def test_questioner_node_appends_turn(tmp_path):
     assert result["messages"][0]["speaker"] == "questioner"
 
 def test_answerer_node_always_retrieves(tmp_path):
+    """answerer_node must call provider.retrieve() regardless of ReAct."""
     state = make_state(
         source_path=str(tmp_path),
         current_speaker="answerer",
@@ -56,20 +57,52 @@ def test_answerer_node_always_retrieves(tmp_path):
     )
     (tmp_path / "a.py").write_text("def foo(): pass")
 
-    mock_llm = MagicMock()
-    mock_llm.invoke.return_value.content = "foo returns None."
+    mock_react_agent = MagicMock()
+    mock_react_agent.invoke.return_value = {
+        "messages": [MagicMock(content="foo returns None.")]
+    }
 
-    with patch("biteme.graph.nodes.ChatOpenAI", return_value=mock_llm), \
+    with patch("biteme.graph.nodes.create_agent", return_value=mock_react_agent), \
+         patch("biteme.graph.nodes.ChatOpenAI"), \
          patch("biteme.graph.nodes.create_provider") as mock_factory:
         mock_provider = MagicMock()
         mock_provider.retrieve.return_value = ["def foo(): pass"]
         mock_factory.return_value = mock_provider
         result = answerer_node(state)
 
-    mock_provider.retrieve.assert_called_once()   # 必须调用 retrieve
+    mock_provider.retrieve.assert_called_once()
     assert result["current_speaker"] == "questioner"
     assert result["messages"][-1]["speaker"] == "answerer"
     assert len(result["messages"][-1]["retrieved_chunks"]) > 0
+
+
+def test_answerer_node_calls_react_agent(tmp_path):
+    """AI branch should use create_agent instead of direct llm.invoke()."""
+    state = make_state(
+        source_path=str(tmp_path),
+        current_speaker="answerer",
+        messages=[{"speaker": "questioner", "content": "Explain the architecture.", "retrieved_chunks": []}],
+    )
+    (tmp_path / "a.py").write_text("class App: pass")
+
+    mock_react_agent = MagicMock()
+    mock_react_agent.invoke.return_value = {
+        "messages": [MagicMock(content="The architecture is based on...")]
+    }
+
+    with patch("biteme.graph.nodes.create_agent", return_value=mock_react_agent) as mock_create, \
+         patch("biteme.graph.nodes.ChatOpenAI") as mock_chat, \
+         patch("biteme.graph.nodes.create_provider") as mock_factory:
+        mock_provider = MagicMock()
+        mock_provider.retrieve.return_value = ["class App: pass"]
+        mock_factory.return_value = mock_provider
+        result = answerer_node(state)
+
+    mock_create.assert_called_once()
+    mock_react_agent.invoke.assert_called_once()
+    call_kwargs = mock_react_agent.invoke.call_args
+    assert call_kwargs[1]["recursion_limit"] == 12
+    assert result["messages"][-1]["content"] == "The architecture is based on..."
 
 
 def test_get_prompts_learn_has_planner():
@@ -241,3 +274,12 @@ def test_questioner_hitl_fallback_when_outline_exhausted(tmp_path):
 
     assert interrupted_value is not None
     assert "提问者" in interrupted_value
+
+
+def test_answerer_prompt_no_context_placeholder():
+    """Answerer prompts should not contain {context} — context is now passed via HumanMessage."""
+    for mode in ("learn", "interview"):
+        prompts = get_prompts(mode)
+        assert "{context}" not in prompts["answerer"], (
+            f"{mode} answerer prompt still contains '{{context}}' placeholder"
+        )
