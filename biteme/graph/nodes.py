@@ -10,6 +10,7 @@ from langchain.agents import create_agent
 from ..context.factory import create_provider
 from ..config import settings
 from ..tools import READONLY_TOOLS
+from .agent_runner import stream_agent
 
 
 def _get_db_path(source_path: str) -> str:
@@ -102,18 +103,23 @@ def questioner_node(state: SessionState) -> dict:
             )
 
         llm = ChatOpenAI(model=settings.openai_model, temperature=0.7)
-        response = llm.invoke([
-            SystemMessage(content=prompts["questioner"]),
-            HumanMessage(
+        questioner_agent = create_agent(
+            model=llm,
+            tools=READONLY_TOOLS,
+            system_prompt=prompts["questioner"],
+        )
+        question_text = stream_agent(
+            questioner_agent,
+            [HumanMessage(
                 content=(
                     f"对话历史：\n{history}"
                     f"{outline_section}"
                     f"\n\n参考内容摘要：\n{context_text[:2000]}"
                     f"\n\n请提出下一个问题。"
                 )
-            ),
-        ])
-        turn = {"speaker": "questioner", "content": response.content, "retrieved_chunks": []}
+            )],
+        )
+        turn = {"speaker": "questioner", "content": question_text, "retrieved_chunks": []}
 
     return {
         "messages": state["messages"] + [turn],
@@ -174,17 +180,17 @@ def answerer_node(state: SessionState) -> dict:
             tools=READONLY_TOOLS,
             system_prompt=prompts["answerer"],
         )
-        result = react_agent.invoke(
-            {"messages": [HumanMessage(
+        final_answer = stream_agent(
+            react_agent,
+            [HumanMessage(
                 content=(
+                    f"源文件路径：{state['source_path']}"
                     f"检索到的相关内容：\n{context_text}"
                     f"\n\n对话历史：\n{history}"
                     f"\n\n请回答最后那个问题。"
                 )
-            )]},
-            recursion_limit=12,
+            )],
         )
-        final_answer = result["messages"][-1].content
         turn = {"speaker": "answerer", "content": final_answer, "retrieved_chunks": chunks}
 
     return {
