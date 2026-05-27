@@ -1,5 +1,4 @@
 from pathlib import Path
-import tiktoken
 import lancedb
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -11,14 +10,13 @@ _SUPPORTED_EXTENSIONS = {".py", ".md", ".txt", ".ts", ".js", ".go", ".rs", ".jav
 
 
 def estimate_tokens(source_path: str) -> int:
-    enc = tiktoken.get_encoding("cl100k_base")
     total = 0
     path = Path(source_path)
     files = [path] if path.is_file() else list(path.rglob("*"))
     for f in files:
         if f.is_file() and f.suffix in _SUPPORTED_EXTENSIONS:
             try:
-                total += len(enc.encode(f.read_text(errors="ignore")))
+                total += len(f.read_text(errors="ignore")) // 4
             except Exception:
                 pass
     return total
