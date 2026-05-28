@@ -61,16 +61,17 @@ def planner_node(state: SessionState) -> dict:
 
 def questioner_node(state: SessionState) -> dict:
     if "questioner" in state["hitl_flags"]:
+        Console().print("\n[bold blue][USER QUESTIONER][/bold blue]")
         outline = state.get("outline", [])
         turn_idx = state["turn_count"]
         if outline and turn_idx < len(outline):
             suggested = outline[turn_idx]
             prompt_msg = (
-                f">>> [提问者] 建议问题（第 {turn_idx + 1} 轮）：{suggested}\n"
+                f"建议问题（第 {turn_idx + 1} 轮）：{suggested}\n"
                 f"（直接回车使用建议问题，或输入新问题）"
             )
         else:
-            prompt_msg = ">>> [提问者] 请输入你的问题："
+            prompt_msg = "请输入你的问题："
         human_text = interrupt(prompt_msg)
         turn: Turn = {"speaker": "human", "content": human_text, "retrieved_chunks": []}
     else:
@@ -102,6 +103,8 @@ def questioner_node(state: SessionState) -> dict:
                 f"不要照搬原文，提出你自己的问题）：{current_topic}"
             )
 
+        console = Console()
+        console.print("\n[bold blue][QUESTIONER][/bold blue]")
         llm = ChatOpenAI(model=settings.openai_model, temperature=0.7)
         questioner_agent = create_agent(
             model=llm,
@@ -140,6 +143,7 @@ def answerer_node(state: SessionState) -> dict:
     if "answerer" in state["hitl_flags"]:
         import click
         console = Console()
+        console.print("\n[bold green][USER ANSWERER][/bold green]")
 
         def _make_preview(chunks: list[str], max_lines: int = 3, max_chars: int = 200) -> str:
             if not chunks:
@@ -165,9 +169,11 @@ def answerer_node(state: SessionState) -> dict:
                 title="[yellow]检索到的相关内容[/yellow] [dim]▾ 展开[/dim]",
             ))
 
-        human_text = interrupt(">>> [回答者] 请输入你的回答：")
+        human_text = interrupt("请输入你的回答：")
         turn: Turn = {"speaker": "human", "content": human_text, "retrieved_chunks": chunks}
     else:
+        console = Console()
+        console.print("\n[bold green][ANSWERER][/bold green]")
         prompts = get_prompts(state["mode"])
         context_text = "\n\n---\n\n".join(chunks[:5])
 

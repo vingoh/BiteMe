@@ -127,15 +127,7 @@ def _extract_suggestion(prompt_text: str) -> str:
 
 
 def _print_turn(turn: Turn) -> None:
-    """Print a single conversation turn."""
-    speaker_color = {
-        "questioner": "blue",
-        "answerer": "green",
-        "human": "yellow",
-    }.get(turn["speaker"], "white")
-    console.print(
-        f"\n[bold {speaker_color}][{turn['speaker'].upper()}][/bold {speaker_color}]"
-    )
+    """Print turn content only. Speaker labels are printed by each node."""
     console.print(turn["content"])
     if turn.get("retrieved_chunks"):
         console.print(f"[dim]（引用了 {len(turn['retrieved_chunks'])} 个片段）[/dim]")

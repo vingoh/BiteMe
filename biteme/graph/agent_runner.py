@@ -12,7 +12,7 @@ def stream_agent(agent, input_messages: list, *, recursion_limit: int = 12, verb
         {"messages": input_messages},
         recursion_limit=recursion_limit,
     ):
-        print(chunk)
+        # print(chunk)
         for _node_name, node_output in chunk.items():
             for msg in node_output.get("messages", []):
                 if verbose:
@@ -23,10 +23,6 @@ def stream_agent(agent, input_messages: list, *, recursion_limit: int = 12, verb
                             _console.print(
                                 f"[cyan]🔧 工具调用: {tc['name']}[/cyan]  参数: {tc['args']}"
                             )
-                    elif isinstance(msg, ToolMessage):
-                        _console.print(
-                            f"[green]📄 工具结果 ({msg.name}):[/green] {str(msg.content)[:500]}"
-                        )
 
                 if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
                     final_content = msg.content
