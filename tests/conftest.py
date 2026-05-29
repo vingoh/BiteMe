@@ -16,4 +16,3 @@ def _patch_tiktoken(monkeypatch):
     # encode() must return something with a len(); simulate ~4 chars per token
     mock_enc.encode.side_effect = lambda text, **kw: list(range(max(1, len(text) // 4)))
     monkeypatch.setattr("tiktoken.get_encoding", lambda *a, **kw: mock_enc)
-    monkeypatch.setattr("biteme.indexing.pipeline.tiktoken.get_encoding", lambda *a, **kw: mock_enc)

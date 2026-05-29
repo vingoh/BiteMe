@@ -1,14 +1,17 @@
 import re
 from pathlib import Path
 
-from langchain_community.tools.file_management import (
-    FileSearchTool,
-    WriteFileTool,
-)
+from langchain_community.tools.file_management import WriteFileTool
 from langchain_core.tools import tool
 
 write_file = WriteFileTool()
-search_files_by_name = FileSearchTool()
+
+_SKIP_DIRS = {
+    ".git", "__pycache__", "node_modules", ".venv", "venv",
+    ".mypy_cache", ".pytest_cache", "dist", "build", ".eggs",
+    ".tox", ".ruff_cache", "htmlcov", ".DS_Store",
+}
+_LIST_DIR_MAX_ENTRIES = 200
 
 _OUTLINE_SUPPORTED = {
     ".py", ".js", ".ts", ".jsx", ".tsx",
@@ -194,7 +197,7 @@ def search_files_by_content(
 
     pattern = re.compile(re.escape(query))
 
-    results: list[str] = []
+    file_blocks: list[str] = []
     for filepath in sorted(root.rglob(file_glob)):
         if not filepath.is_file():
             continue
@@ -203,17 +206,121 @@ def search_files_by_content(
         except Exception:
             continue
         rel = filepath.relative_to(root)
+        match_blocks: list[str] = []
         for i, line in enumerate(lines):
             if not pattern.search(line):
                 continue
             block = []
             for j in range(max(0, i - context_lines), i):
-                block.append(f"  {j + 1}: {lines[j]}")
-            block.append(f"{rel}:{i + 1}: {line}")
+                block.append(f"  {j + 1:4} | {lines[j]}")
+            block.append(f"> {i + 1:4} | {line}")
             for j in range(i + 1, min(len(lines), i + 1 + context_lines)):
-                block.append(f"  {j + 1}: {lines[j]}")
-            results.append("\n".join(block))
+                block.append(f"  {j + 1:4} | {lines[j]}")
+            match_blocks.append("\n".join(block))
+        if match_blocks:
+            file_blocks.append(f"{rel}\n" + "\n\n".join(match_blocks))
 
-    if not results:
+    if not file_blocks:
         return f"No matches found for '{query}' in '{directory}'"
-    return "\n\n".join(results)
+    return "\n\n".join(file_blocks)
+
+
+@tool
+def search_files_by_name(directory: str, pattern: str) -> str:
+    """在指定目录下按文件名 glob pattern 搜索文件，返回相对路径列表。
+
+    Args:
+        directory: 搜索根目录的绝对路径。
+        pattern: glob 模式，如 '*.py'、'**/*test*'、'README*'。
+
+    Returns:
+        每行一个相对路径；无匹配时返回提示字符串。
+    """
+    root = Path(directory)
+    if not root.is_dir():
+        return f"Error: '{directory}' 不是目录或不存在"
+    matches = [
+        str(p.relative_to(root))
+        for p in sorted(root.rglob(pattern))
+        if p.is_file()
+    ]
+    if not matches:
+        return f"未找到匹配 '{pattern}' 的文件"
+    return "\n".join(matches)
+
+
+def _build_tree(
+    root: Path,
+    current: Path,
+    current_depth: int,
+    max_depth: int,
+    lines: list[str],
+    prefix: str,
+    counter: list[int],
+) -> None:
+    """递归构建目录树，写入 lines，counter[0] 跟踪条目总数。"""
+    try:
+        entries = sorted(current.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+    except PermissionError:
+        return
+
+    dirs = [e for e in entries if e.is_dir() and e.name not in _SKIP_DIRS]
+    files = [e for e in entries if e.is_file()]
+    visible = dirs + files
+
+    for i, entry in enumerate(visible):
+        if counter[0] >= _LIST_DIR_MAX_ENTRIES:
+            lines.append(f"{prefix}… (已截断，超过 {_LIST_DIR_MAX_ENTRIES} 个条目)")
+            return
+        counter[0] += 1
+
+        is_last = (i == len(visible) - 1)
+        connector = "└── " if is_last else "├── "
+        child_prefix = prefix + ("    " if is_last else "│   ")
+
+        if entry.is_dir():
+            if current_depth >= max_depth:
+                try:
+                    n = sum(1 for _ in entry.iterdir())
+                except PermissionError:
+                    n = "?"
+                lines.append(f"{prefix}{connector}{entry.name}/  ({n} items)")
+            else:
+                lines.append(f"{prefix}{connector}{entry.name}/")
+                _build_tree(root, entry, current_depth + 1, max_depth, lines, child_prefix, counter)
+        else:
+            try:
+                line_count = len(entry.read_text(errors="ignore").splitlines())
+                lines.append(f"{prefix}{connector}{entry.name}  ({line_count} lines)")
+            except Exception:
+                lines.append(f"{prefix}{connector}{entry.name}")
+
+
+@tool
+def list_directory(path: str, depth: int = 2) -> str:
+    """列出目录的树状结构，用于了解项目文件布局。
+
+    仅展开到指定深度，超过深度的子目录显示为 'name/ (N items)'。
+    自动跳过 .git、__pycache__、node_modules 等噪音目录。
+
+    Args:
+        path: 目录或文件的绝对路径。
+        depth: 展开层级深度，默认 2。传入文件路径时忽略此参数。
+
+    Returns:
+        树状结构文本；传入文件路径时返回单文件提示。
+    """
+    p = Path(path)
+    if not p.exists():
+        return f"Error: 路径不存在：{path}"
+    if p.is_file():
+        try:
+            line_count = len(p.read_text(errors="ignore").splitlines())
+        except Exception:
+            line_count = "?"
+        return f"（单文件）{p.name}  ({line_count} lines)"
+
+    lines = [f"{p.name}/"]
+    counter = [0]
+    _build_tree(p, p, 1, depth, lines, "", counter)
+    return "\n".join(lines)
