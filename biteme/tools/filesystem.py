@@ -27,7 +27,9 @@ _MAX_OUTLINE_LINES = 5000
 def read_file(path: str, offset: int = 1, limit: int = 200) -> str:
     """读取本地文件的指定行范围。
 
-    若不确定目标内容在哪一行，建议先调用 file_outline 获取文件结构和行号，
+    通常是探索链的最后一步：先用 list_directory 了解项目结构，
+    再用 file_outline 定位目标函数的行号，最后用本工具精准读取。
+    若不确定目标内容在哪一行，建议先调用 file_outline 获取行号，
     再用 offset 精准定位，避免读取无关内容浪费 token。
 
     Args:
@@ -37,6 +39,10 @@ def read_file(path: str, offset: int = 1, limit: int = 200) -> str:
 
     Returns:
         带行号前缀的文件内容，格式：'行号 | 内容'。
+        示例：
+             42 | def build_graph(checkpointer):
+             43 |     builder = StateGraph(SessionState)
+             44 |     builder.add_node("planner", planner_node)
     """
     p = Path(path)
     if not p.exists():
@@ -117,6 +123,10 @@ def _outline_markdown(lines: list[str]) -> list[str]:
 def file_outline(path: str) -> str:
     """返回文件的结构骨架：所有类、函数、方法的名称与起始行号。
 
+    在 list_directory 找到目标文件后调用本工具，获取内部结构与行号，
+    再将行号传给 read_file(offset=行号) 精准读取目标区域。
+    若文件较小（< 200 行）或已知目标行号，可跳过本工具直接用 read_file。
+
     仅支持以下文件类型（对其他类型会返回错误，请勿对不支持的文件调用本工具）：
       .py                      — Python
       .js / .ts / .jsx / .tsx  — JavaScript / TypeScript
@@ -128,7 +138,10 @@ def file_outline(path: str) -> str:
         path: 文件的绝对路径。
 
     Returns:
-        每行格式：'第 N 行  <缩进>kind 名称(签名)'
+        每行格式：'第 N 行  <缩进>kind 名称(签名)'，示例：
+            第    1 行  class SessionState
+            第   12 行    def build_graph(checkpointer
+            第   28 行    def _should_continue(state
         若文件超过 5000 行，只扫描前 5000 行。
     """
     p = Path(path)
@@ -177,19 +190,36 @@ def search_files_by_content(
     file_glob: str = "*",
     context_lines: int = 2,
 ) -> str:
-    """Search file contents in a directory for lines containing a literal string.
+    """在目录下按字面字符串搜索文件内容，返回匹配行及上下文。
 
-    All queries are treated as plain-text literals (not regex), so characters
-    like '$', '.', '*' match themselves. Returns grep-style output:
-      path/to/file.py:42: matched line
-        40: context before
-        43: context after
+    所有查询均视为纯文本字面量（非正则），'$'、'.'、'*' 等特殊字符直接匹配自身。
+
+    适合场景：
+      - 查找某函数名、类名、变量名在哪些文件中出现
+      - 追踪某个字符串常量的所有引用
+      - 不确定文件路径时，横向扫描整个目录
+
+    若已知文件路径，直接用 file_outline + read_file 更高效。
+    若要按文件名定位，用 search_files_by_name。
 
     Args:
-        directory: Root directory to search in.
-        query: Plain-text string to match literally.
-        file_glob: Glob pattern to filter files (e.g. '*.py'). Defaults to '*'.
-        context_lines: Number of lines to show before and after each match.
+        directory: 搜索根目录的绝对路径。
+        query: 要匹配的纯文本字符串。
+        file_glob: 文件名过滤 glob，如 '*.py'。默认 '*'（所有文件）。
+        context_lines: 匹配行前后各显示的上下文行数，默认 2。
+
+    Returns:
+        按文件分组的匹配结果，示例：
+            src/main.py
+            >    3 | def read_file(path: str):
+                 2 | import re
+                 4 |     p = Path(path)
+
+            tests/test_main.py
+            >   15 | result = read_file.invoke(...)
+
+        其中 '>' 标记匹配行，无 '>' 的行为上下文。
+        无匹配时返回提示字符串。
     """
     root = Path(directory)
     if not root.is_dir():
@@ -229,12 +259,26 @@ def search_files_by_content(
 def search_files_by_name(directory: str, pattern: str) -> str:
     """在指定目录下按文件名 glob pattern 搜索文件，返回相对路径列表。
 
+    当你已知（部分）文件名或文件类型时使用本工具。
+    - 若要浏览目录整体结构，优先用 list_directory
+    - 若要按文件内容查找代码片段，用 search_files_by_content
+
+    glob pattern 说明：
+      '*.py'       → 所有 Python 文件（递归搜索）
+      '*test*'     → 名称中含 "test" 的文件
+      'README*'    → 以 README 开头的文件
+      '*.{py,md}'  → 注意：brace 扩展不支持，请对每种后缀分别调用
+
     Args:
         directory: 搜索根目录的绝对路径。
-        pattern: glob 模式，如 '*.py'、'**/*test*'、'README*'。
+        pattern: 文件名 glob 模式。
 
     Returns:
-        每行一个相对路径；无匹配时返回提示字符串。
+        每行一个相对于 directory 的文件路径；无匹配时返回提示字符串。
+        示例：
+            src/main.py
+            src/utils.py
+            tests/test_main.py
     """
     root = Path(directory)
     if not root.is_dir():
@@ -298,17 +342,29 @@ def _build_tree(
 
 @tool
 def list_directory(path: str, depth: int = 2) -> str:
-    """列出目录的树状结构，用于了解项目文件布局。
+    """列出目录的树状结构，是探索陌生项目的第一步。
 
-    仅展开到指定深度，超过深度的子目录显示为 'name/ (N items)'。
-    自动跳过 .git、__pycache__、node_modules 等噪音目录。
+    拿到 source_path 后应优先调用本工具，了解项目整体布局，
+    再对感兴趣的文件调用 file_outline 获取结构骨架，
+    最后用 read_file 精准读取目标区域。
+
+    自动跳过 .git、__pycache__、node_modules、.venv 等噪音目录。
+    超过 depth 层级的子目录折叠显示为 'name/ (N items)'，
+    若需展开更深层级，可增大 depth 参数重新调用。
 
     Args:
-        path: 目录或文件的绝对路径。
+        path: 目录或文件的绝对路径。传入文件路径时返回单文件行数信息。
         depth: 展开层级深度，默认 2。传入文件路径时忽略此参数。
 
     Returns:
-        树状结构文本；传入文件路径时返回单文件提示。
+        树状结构文本，示例：
+            myproject/
+            ├── README.md  (42 lines)
+            ├── src/
+            │   ├── main.py  (120 lines)
+            │   └── utils.py  (55 lines)
+            └── tests/  (3 items)
+        传入文件路径时返回：（单文件）filename  (N lines)
     """
     p = Path(path)
     if not p.exists():
