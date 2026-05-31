@@ -18,3 +18,4 @@ class SessionState(TypedDict):
     context_strategy: str          # "auto" | "direct" | "rag"
     source_path: str
     outline: list[str]             # planner 生成的提问大纲，空列表表示尚未生成
+    llm_reference_answer: str      # LLM 生成的参考答案，HITL 模式下供参考，非 HITL 时为空字符串

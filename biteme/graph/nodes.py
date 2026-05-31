@@ -149,6 +149,8 @@ def answerer_node(state: SessionState) -> dict:
         console = Console()
         console.print("\n[bold green][USER ANSWERER][/bold green]")
 
+        
+
         def _make_preview(chunks: list[str], max_lines: int = 3, max_chars: int = 200) -> str:
             if not chunks:
                 return ""
@@ -174,7 +176,42 @@ def answerer_node(state: SessionState) -> dict:
             ))
 
         human_text = interrupt("请输入你的回答：")
+
+        prompts = get_prompts(state["mode"])
+        context_text = "\n\n---\n\n".join(chunks[:5])
+        history = "\n".join(
+            f"[{t['speaker']}]: {t['content']}" for t in state["messages"][-6:]
+        )
+        llm_ref = ChatOpenAI(model=settings.openai_model, temperature=0.3)
+        ref_agent = create_agent(
+            model=llm_ref,
+            tools=READONLY_TOOLS,
+            system_prompt=prompts["answerer"],
+        )
+        # 用户提交答案后，调用 LLM 生成参考答案并展示
+        console.print("\n[bold green][LLM 参考答案生成中][/bold green]")
+        llm_answer = stream_agent(
+            ref_agent,
+            [HumanMessage(
+                content=(
+                    f"源文件路径：{state['source_path']}"
+                    f"检索到的相关内容：\n{context_text}"
+                    f"\n\n对话历史：\n{history}"
+                    f"\n\n请回答最后那个问题。"
+                )
+            )],
+        )
+        console.print(Panel(
+            llm_answer,
+            title="[green]LLM 参考答案[/green]",
+        ))
+
         turn: Turn = {"speaker": "human", "content": human_text, "retrieved_chunks": chunks}
+        return {
+            "messages": state["messages"] + [turn],
+            "current_speaker": "questioner",
+            "llm_reference_answer": llm_answer,
+        }
     else:
         console = Console()
         console.print("\n[bold green][ANSWERER][/bold green]")
@@ -202,8 +239,8 @@ def answerer_node(state: SessionState) -> dict:
             )],
         )
         turn = {"speaker": "answerer", "content": final_answer, "retrieved_chunks": chunks}
-
-    return {
-        "messages": state["messages"] + [turn],
-        "current_speaker": "questioner",
-    }
+        return {
+            "messages": state["messages"] + [turn],
+            "current_speaker": "questioner",
+            "llm_reference_answer": "",
+        }
