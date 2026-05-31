@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
-from biteme.graph.state import SessionState, Turn
-from biteme.graph.nodes import questioner_node, answerer_node
+from biteme.graph.state import SessionState, Turn, KeywordScore
+from biteme.graph.nodes import questioner_node, answerer_node, reviewer_node
 from biteme.graph.prompts import get_prompts
 
 def test_session_state_has_outline_field():
@@ -23,6 +23,8 @@ def make_state(**kwargs) -> SessionState:
         context_strategy="direct",
         source_path="/tmp/fake",
         outline=[],
+        llm_reference_answer="",
+        review_history=[],
     )
     defaults.update(kwargs)
     return defaults  # type: ignore
@@ -278,3 +280,137 @@ def test_answerer_prompt_no_context_placeholder():
         assert "{context}" not in prompts["answerer"], (
             f"{mode} answerer prompt still contains '{{context}}' placeholder"
         )
+
+
+def test_keyword_score_typeddict():
+    ks: KeywordScore = {"keyword": "向量检索", "score": 8}
+    assert ks["keyword"] == "向量检索"
+    assert ks["score"] == 8
+
+def test_session_state_has_review_history_field():
+    state = make_state()
+    assert state["review_history"] == []
+
+def test_session_state_review_history_accumulates():
+    turn_keywords = [{"keyword": "embedding", "score": 9}]
+    state = make_state(review_history=[turn_keywords])
+    assert state["review_history"] == [turn_keywords]
+
+
+def test_get_prompts_learn_has_reviewer():
+    prompts = get_prompts("learn")
+    assert "reviewer" in prompts
+    assert isinstance(prompts["reviewer"], str)
+    assert len(prompts["reviewer"]) > 0
+
+def test_get_prompts_interview_has_reviewer():
+    prompts = get_prompts("interview")
+    assert "reviewer" in prompts
+    assert isinstance(prompts["reviewer"], str)
+    assert len(prompts["reviewer"]) > 0
+
+def test_reviewer_prompt_requests_json_output():
+    prompts = get_prompts("learn")
+    assert "JSON" in prompts["reviewer"]
+    assert "keywords" in prompts["reviewer"]
+
+def test_reviewer_prompt_is_shared_constant():
+    from biteme.graph.prompts import REVIEWER
+    assert get_prompts("learn")["reviewer"] is REVIEWER
+    assert get_prompts("interview")["reviewer"] is REVIEWER
+
+
+def test_reviewer_node_appends_to_review_history():
+    """reviewer_node must append one list[KeywordScore] per call."""
+    state = make_state(
+        hitl_flags=["answerer"],
+        messages=[
+            {"speaker": "questioner", "content": "什么是 RAG？", "retrieved_chunks": []},
+            {"speaker": "human", "content": "RAG 是检索增强生成。", "retrieved_chunks": []},
+        ],
+        llm_reference_answer="RAG（Retrieval-Augmented Generation）结合检索与生成，先从知识库检索相关片段，再输入 LLM 生成答案。核心组件：向量检索、embedding 模型、LLM。",
+        review_history=[],
+    )
+    llm_response = '{"keywords": [{"keyword": "向量检索", "score": 7}, {"keyword": "embedding", "score": 5}]}'
+
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value.content = llm_response
+
+    with patch("biteme.graph.nodes.ChatOpenAI", return_value=mock_llm), \
+         patch("biteme.graph.nodes.Console"):
+        result = reviewer_node(state)
+
+    assert "review_history" in result
+    assert len(result["review_history"]) == 1
+    turn_keywords = result["review_history"][0]
+    assert len(turn_keywords) == 2
+    assert turn_keywords[0]["keyword"] == "向量检索"
+    assert turn_keywords[0]["score"] == 7
+
+
+def test_reviewer_node_handles_malformed_json():
+    """If LLM returns invalid JSON, reviewer_node appends an empty list (no crash)."""
+    state = make_state(
+        hitl_flags=["answerer"],
+        messages=[
+            {"speaker": "questioner", "content": "问题", "retrieved_chunks": []},
+            {"speaker": "human", "content": "回答", "retrieved_chunks": []},
+        ],
+        llm_reference_answer="参考答案",
+        review_history=[],
+    )
+
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value.content = "这不是JSON"
+
+    with patch("biteme.graph.nodes.ChatOpenAI", return_value=mock_llm), \
+         patch("biteme.graph.nodes.Console"):
+        result = reviewer_node(state)
+
+    assert result["review_history"] == [[]]
+
+
+def test_reviewer_node_accumulates_across_turns():
+    """review_history grows by one entry each time reviewer_node runs."""
+    existing = [[{"keyword": "旧关键词", "score": 6}]]
+    state = make_state(
+        hitl_flags=["answerer"],
+        messages=[
+            {"speaker": "questioner", "content": "新问题", "retrieved_chunks": []},
+            {"speaker": "human", "content": "新回答", "retrieved_chunks": []},
+        ],
+        llm_reference_answer="新参考",
+        review_history=existing,
+    )
+
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value.content = '{"keywords": [{"keyword": "新关键词", "score": 9}]}'
+
+    with patch("biteme.graph.nodes.ChatOpenAI", return_value=mock_llm), \
+         patch("biteme.graph.nodes.Console"):
+        result = reviewer_node(state)
+
+    assert len(result["review_history"]) == 2
+    assert result["review_history"][0][0]["keyword"] == "旧关键词"
+    assert result["review_history"][1][0]["keyword"] == "新关键词"
+
+
+from biteme.graph.graph import _after_answerer
+
+def test_after_answerer_routes_to_reviewer_when_hitl():
+    state = make_state(hitl_flags=["answerer"], turn_count=2, max_turns=5)
+    assert _after_answerer(state) == "reviewer"
+
+def test_after_answerer_routes_to_end_when_max_turns_non_hitl():
+    state = make_state(hitl_flags=[], turn_count=5, max_turns=5)
+    from langgraph.graph import END
+    assert _after_answerer(state) == END
+
+def test_after_answerer_routes_to_questioner_otherwise():
+    state = make_state(hitl_flags=[], turn_count=2, max_turns=5)
+    assert _after_answerer(state) == "questioner"
+
+def test_graph_has_reviewer_node():
+    from biteme.graph.graph import build_graph
+    graph = build_graph(checkpointer=None)
+    assert "reviewer" in set(graph.nodes.keys())

@@ -1,6 +1,7 @@
 import re
+import json
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.types import interrupt
 from rich.console import Console
 from rich.panel import Panel
@@ -244,3 +245,52 @@ def answerer_node(state: SessionState) -> dict:
             "current_speaker": "questioner",
             "llm_reference_answer": "",
         }
+
+
+def reviewer_node(state: SessionState) -> dict:
+    question = state["messages"][-2]["content"] if len(state["messages"]) >= 2 else ""
+    user_answer = state["messages"][-1]["content"] if state["messages"] else ""
+    llm_answer = state.get("llm_reference_answer", "")
+
+    prompts = get_prompts(state["mode"])
+    llm = ChatOpenAI(model=settings.openai_model, temperature=0.1)
+
+    response = llm.invoke([
+        SystemMessage(content=prompts["reviewer"]),
+        HumanMessage(content=(
+            f"问题：{question}\n\n"
+            f"用户回答：{user_answer}\n\n"
+            f"LLM 参考答案：{llm_answer}"
+        )),
+    ])
+
+    try:
+        data = json.loads(response.content)
+        keywords = [
+            k for k in data.get("keywords", [])
+            if isinstance(k, dict)
+            and isinstance(k.get("keyword"), str)
+            and isinstance(k.get("score"), int)
+            and 0 <= k["score"] <= 10
+        ]
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        keywords = []
+
+    console = Console()
+
+    def _color(score: int) -> str:
+        if score >= 7:
+            return "green"
+        if score >= 4:
+            return "yellow"
+        return "red"
+
+    lines = "\n".join(
+        f"[{_color(kw['score'])}]{kw['keyword']}[/{_color(kw['score'])}]  {kw['score']}"
+        for kw in keywords
+    )
+    console.print(Panel(lines or "[dim]（无关键词）[/dim]", title="[bold]本轮评审[/bold]"))
+
+    return {
+        "review_history": state["review_history"] + [keywords],
+    }

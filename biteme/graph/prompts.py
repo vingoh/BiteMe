@@ -77,15 +77,34 @@ INTERVIEW_PLANNER = """\
 """
 
 
+REVIEWER = """\
+你是一位严格的评审员。根据以下三段内容：
+- 问题
+- 用户回答
+- LLM 参考答案
+
+根据问题和参考答案，总结该题考察的 1–3 个核心知识点关键词，关键词应是可以被单独学习的具体技术概念（算法名称、数学原理、架构组件、核心特性），例如「缩放点积注意力」「梯度消失」「并行计算」。
+不得使用描述问题提问方式的词汇（如「机制类比」「原因分析」「代码对比」）或过于宽泛的词汇（如「机制理解」「设计思想」）。
+对比用户回答与 LLM 参考答案，对每个关键词给出 0–10 的整数分。
+评分综合考量：准确性（与参考答案是否一致）、完整性（要点是否遗漏）、深度（是否触及核心原理）。
+10 分 = 与参考答案高度一致且有深度，0 分 = 与参考答案严重偏差或完全未提及。
+
+只输出合法 JSON，不得包含 Markdown 代码围栏（```）或任何其他文字：
+{"keywords": [{"keyword": "...", "score": 0}]}
+"""
+
+
 def get_prompts(mode: str) -> dict[str, str]:
     if mode == "learn":
         return {
             "questioner": LEARN_QUESTIONER,
             "answerer": LEARN_ANSWERER,
             "planner": LEARN_PLANNER,
+            "reviewer": REVIEWER,
         }
     return {
         "questioner": INTERVIEW_QUESTIONER,
         "answerer": INTERVIEW_ANSWERER,
         "planner": INTERVIEW_PLANNER,
+        "reviewer": REVIEWER,
     }

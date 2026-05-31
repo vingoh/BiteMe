@@ -73,6 +73,8 @@ def run(
         "context_strategy": strategy,
         "source_path": str(path.resolve()),
         "outline": [],
+        "llm_reference_answer": "",
+        "review_history": [],
     }
 
     with get_checkpoint_saver(session_id) as checkpointer:
@@ -133,6 +135,23 @@ def _print_turn(turn: Turn) -> None:
         console.print(f"[dim]（引用了 {len(turn['retrieved_chunks'])} 个片段）[/dim]")
 
 
+def _collect_input() -> str:
+    """收集多行输入，空行提交。第一行为空直接提交空字符串（用于触发建议问题回退）。"""
+    console.print("[dim]（支持多行输入，空行提交）[/dim]")
+    lines: list[str] = []
+    while True:
+        try:
+            line = input("> ")
+        except EOFError:
+            break
+        if not line and not lines:
+            return ""
+        if not line:
+            break
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _run_graph(graph, initial_state, config):
     """运行图，循环处理 HITL interrupt 与流式输出。"""
     pending = initial_state if initial_state is not None else None
@@ -155,7 +174,7 @@ def _run_graph(graph, initial_state, config):
                 interrupt_obj = state["__interrupt__"][0]
                 prompt_text = str(interrupt_obj.value)
                 console.print(f"\n[bold yellow]{prompt_text}[/bold yellow]")
-                user_input = typer.prompt("", prompt_suffix="> ")
+                user_input = _collect_input()
                 if not user_input.strip():
                     user_input = _extract_suggestion(prompt_text)
                 pending = Command(resume=user_input)
