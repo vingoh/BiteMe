@@ -1,6 +1,6 @@
 import re
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 from langgraph.types import interrupt
 from rich.console import Console
 from rich.panel import Panel
@@ -35,25 +35,29 @@ def _parse_outline(text: str) -> list[str]:
 def planner_node(state: SessionState) -> dict:
     prompts = get_prompts(state["mode"])
     n = state["max_turns"] + 2
-    provider = create_provider(
-        source_path=state["source_path"],
-        strategy=state["context_strategy"],
-        db_path=_get_db_path(state["source_path"]),
-    )
-    overview_chunks = provider.get_overview()
-    context_text = "\n\n---\n\n".join(overview_chunks[:3])
 
+    console = Console()
+    console.print("\n[bold cyan][PLANNER][/bold cyan]")
     llm = ChatOpenAI(model=settings.openai_model, temperature=0.7)
-    response = llm.invoke([
-        SystemMessage(content=prompts["planner"]),
-        HumanMessage(content=f"文档摘要：\n{context_text[:3000]}\n\n请生成 {n} 个问题。"),
-    ])
+    planner_agent = create_agent(
+        model=llm,
+        tools=READONLY_TOOLS,
+        system_prompt=prompts["planner"],
+    )
+    outline_text = stream_agent(
+        planner_agent,
+        [HumanMessage(
+            content=(
+                f"源文件路径：{state['source_path']}\n\n"
+                f"请先探索项目结构，再生成 {n} 个问题，按编号列出。"
+            )
+        )],
+    )
 
-    outline = _parse_outline(response.content)
+    outline = _parse_outline(outline_text)
 
     title = "提问大纲" if state["mode"] == "learn" else "面试大纲"
     outline_display = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(outline))
-    console = Console()
     console.print(Panel(outline_display, title=f"[cyan]{title}[/cyan]"))
 
     return {"outline": outline}

@@ -140,41 +140,36 @@ from biteme.graph.nodes import planner_node
 
 def test_planner_node_populates_outline(tmp_path):
     state = make_state(source_path=str(tmp_path), max_turns=3)
-    (tmp_path / "doc.md").write_text("# BiteMe\n双Agent问答系统。")
 
-    mock_llm = MagicMock()
-    mock_llm.invoke.return_value.content = (
+    outline_response = (
         "1. 什么是BiteMe？\n2. 它有哪些核心功能？\n"
         "3. 如何启动会话？\n4. HITL如何工作？\n5. 如何恢复会话？"
     )
 
-    with patch("biteme.graph.nodes.ChatOpenAI", return_value=mock_llm), \
-         patch("biteme.graph.nodes.create_provider") as mock_factory, \
+    with patch("biteme.graph.nodes.create_agent") as mock_create, \
+         patch("biteme.graph.nodes.stream_agent", return_value=outline_response) as mock_stream, \
+         patch("biteme.graph.nodes.ChatOpenAI"), \
          patch("biteme.graph.nodes.Console"):
-        mock_provider = MagicMock()
-        mock_provider.get_overview.return_value = ["# BiteMe\n双Agent问答系统。"]
-        mock_factory.return_value = mock_provider
         result = planner_node(state)
 
+    mock_create.assert_called_once()
+    mock_stream.assert_called_once()
     assert len(result["outline"]) == 5  # max_turns(3) + 2
     assert result["outline"][0] == "什么是BiteMe？"
-    mock_provider.get_overview.assert_called_once()
 
 def test_planner_node_interview_mode(tmp_path):
     state = make_state(source_path=str(tmp_path), max_turns=2, mode="interview")
-    (tmp_path / "doc.md").write_text("# API Design")
 
-    mock_llm = MagicMock()
-    mock_llm.invoke.return_value.content = "1. 接口设计原则是什么？\n2. 如何处理版本兼容？\n3. 错误码规范？\n4. 认证机制？"
+    outline_response = "1. 接口设计原则是什么？\n2. 如何处理版本兼容？\n3. 错误码规范？\n4. 认证机制？"
 
-    with patch("biteme.graph.nodes.ChatOpenAI", return_value=mock_llm), \
-         patch("biteme.graph.nodes.create_provider") as mock_factory, \
+    with patch("biteme.graph.nodes.create_agent") as mock_create, \
+         patch("biteme.graph.nodes.stream_agent", return_value=outline_response) as mock_stream, \
+         patch("biteme.graph.nodes.ChatOpenAI"), \
          patch("biteme.graph.nodes.Console"):
-        mock_provider = MagicMock()
-        mock_provider.get_overview.return_value = ["# API Design"]
-        mock_factory.return_value = mock_provider
         result = planner_node(state)
 
+    mock_create.assert_called_once()
+    mock_stream.assert_called_once()
     assert len(result["outline"]) == 4
     assert "outline" in result
 
