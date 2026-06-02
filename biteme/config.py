@@ -11,6 +11,7 @@ class Settings:
         self.biteme_home: Path = Path(os.getenv("BITEME_HOME", "~/.biteme")).expanduser()
         self.indexes_dir: Path = self.biteme_home / "indexes"
         self.sessions_dir: Path = self.biteme_home / "sessions"
+        self.review_memory_path: Path = self.biteme_home / "review_memory.json"
         self.github_token: str = os.getenv("GITHUB_TOKEN", "")
         self.tavily_api_key: str = os.getenv("TAVILY_API_KEY", "")
 

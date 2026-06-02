@@ -1,17 +1,21 @@
+import os
 import re
 import json
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langgraph.types import interrupt
 from rich.console import Console
 from rich.panel import Panel
 from .state import SessionState, Turn
-from .prompts import get_prompts
+from .prompts import get_prompts, MEMORY_MERGE
+
 from langchain.agents import create_agent
 from ..context.factory import create_provider
 from ..config import settings
 from ..tools import READONLY_TOOLS
 from .agent_runner import stream_agent
+
+_MAX_MEMORY_RETRIES = 3
 
 
 def _get_db_path(source_path: str) -> str:
@@ -294,3 +298,86 @@ def reviewer_node(state: SessionState) -> dict:
     return {
         "review_history": state["review_history"] + [keywords],
     }
+
+
+def memory_node(state: SessionState) -> dict:
+    if not state["review_history"]:
+        return {}
+
+    memory_path = settings.review_memory_path
+    old_memory: list = []
+    if memory_path.exists():
+        try:
+            old_memory = json.loads(memory_path.read_text(encoding="utf-8"))
+        except Exception:
+            Console().print("[yellow]警告：无法读取 review_memory.json，视为空记忆[/yellow]")
+            old_memory = []
+
+    old_memory_text = json.dumps(old_memory, ensure_ascii=False)
+    review_history_text = json.dumps(state["review_history"], ensure_ascii=False)
+
+    llm = ChatOpenAI(model=settings.openai_model, temperature=0.0)
+    messages = [
+        SystemMessage(content=MEMORY_MERGE),
+        HumanMessage(content=(
+            f"旧记忆：\n{old_memory_text}\n\n"
+            f"本次 session 的 review_history：\n{review_history_text}"
+        )),
+    ]
+
+    validated: list | None = None
+    for attempt in range(_MAX_MEMORY_RETRIES):
+        response = llm.invoke(messages)
+        raw: str = response.content
+        try:
+            data = json.loads(raw)
+            if not isinstance(data, list):
+                raise ValueError("顶层结构必须是 JSON 数组")
+            entries = []
+            for entry in data:
+                kw = entry.get("keyword")
+                scores = entry.get("scores")
+                if (
+                    isinstance(kw, str) and kw
+                    and isinstance(scores, list)
+                    and scores
+                    and all(isinstance(s, int) and 0 <= s <= 10 for s in scores)
+                ):
+                    entries.append({"keyword": kw, "scores": scores})
+            if not entries:
+                raise ValueError("所有条目均未通过验证，视为无效响应")
+            validated = entries
+            break
+        except Exception as exc:
+            if attempt < _MAX_MEMORY_RETRIES - 1:
+                messages.append(AIMessage(content=raw))
+                messages.append(HumanMessage(content=(
+                    f"上面的输出有误：{exc}。"
+                    f"请修正并重新输出合法 JSON 数组，"
+                    f'格式：[{{"keyword": "...", "scores": [...]}}]'
+                )))
+            else:
+                Console().print("[yellow]警告：memory_node 连续 3 次输出无效，跳过写入[/yellow]")
+                return {}
+
+    result = [
+        {
+            "keyword": entry["keyword"],
+            "scores": entry["scores"],
+            "avg_score": round(sum(entry["scores"]) / len(entry["scores"]), 2),
+        }
+        for entry in validated
+    ]
+
+    try:
+        memory_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = memory_path.with_suffix(".tmp")
+        tmp_path.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        os.replace(tmp_path, memory_path)
+    except Exception:
+        Console().print("[yellow]警告：review_memory.json 写入失败[/yellow]")
+
+    return {}

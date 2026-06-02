@@ -401,10 +401,9 @@ def test_after_answerer_routes_to_reviewer_when_hitl():
     state = make_state(hitl_flags=["answerer"], turn_count=2, max_turns=5)
     assert _after_answerer(state) == "reviewer"
 
-def test_after_answerer_routes_to_end_when_max_turns_non_hitl():
+def test_after_answerer_routes_to_memory_when_max_turns_non_hitl():
     state = make_state(hitl_flags=[], turn_count=5, max_turns=5)
-    from langgraph.graph import END
-    assert _after_answerer(state) == END
+    assert _after_answerer(state) == "memory"
 
 def test_after_answerer_routes_to_questioner_otherwise():
     state = make_state(hitl_flags=[], turn_count=2, max_turns=5)
@@ -414,3 +413,27 @@ def test_graph_has_reviewer_node():
     from biteme.graph.graph import build_graph
     graph = build_graph(checkpointer=None)
     assert "reviewer" in set(graph.nodes.keys())
+
+def test_graph_has_memory_node():
+    from biteme.graph.graph import build_graph
+    graph = build_graph(checkpointer=None)
+    assert "memory" in set(graph.nodes.keys())
+
+
+def test_memory_merge_prompt_exists():
+    from biteme.graph.prompts import MEMORY_MERGE
+    assert isinstance(MEMORY_MERGE, str)
+    assert "review_history" in MEMORY_MERGE
+    assert "scores" in MEMORY_MERGE
+    assert "avg_score" not in MEMORY_MERGE  # avg_score computed by code, not LLM
+
+
+from biteme.graph.graph import _should_continue
+
+def test_should_continue_routes_to_memory_when_max_turns():
+    state = make_state(hitl_flags=[], turn_count=5, max_turns=5)
+    assert _should_continue(state) == "memory"
+
+def test_should_continue_routes_to_questioner_otherwise():
+    state = make_state(hitl_flags=[], turn_count=2, max_turns=5)
+    assert _should_continue(state) == "questioner"

@@ -38,3 +38,10 @@ def test_tavily_api_key_custom(monkeypatch):
     import importlib, biteme.config as cfg
     importlib.reload(cfg)
     assert cfg.settings.tavily_api_key == "tvly-test123"
+
+def test_settings_has_review_memory_path():
+    from biteme.config import settings
+    from pathlib import Path
+    assert hasattr(settings, "review_memory_path")
+    assert isinstance(settings.review_memory_path, Path)
+    assert settings.review_memory_path.name == "review_memory.json"
