@@ -16,3 +16,14 @@ def _patch_tiktoken(monkeypatch):
     # encode() must return something with a len(); simulate ~4 chars per token
     mock_enc.encode.side_effect = lambda text, **kw: list(range(max(1, len(text) // 4)))
     monkeypatch.setattr("tiktoken.get_encoding", lambda *a, **kw: mock_enc)
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip tests marked 'integration' unless -m integration is explicitly passed."""
+    mark_expr = config.option.markexpr if hasattr(config.option, "markexpr") else ""
+    if "integration" in mark_expr:
+        return  # user opted in — run them normally
+    skip = pytest.mark.skip(reason="integration test: run with -m integration")
+    for item in items:
+        if item.get_closest_marker("integration"):
+            item.add_marker(skip)

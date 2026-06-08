@@ -76,6 +76,43 @@ INTERVIEW_PLANNER = """\
 - 按编号列出，格式：1. xxx  2. xxx ...
 """
 
+MEMORY_UPDATER = """\
+你是一个知识点追踪助手。根据提供的一问一答，识别其中涉及的 1–3 个知识点，
+并评估用户对每个知识点的掌握程度。
+
+## 已有知识点
+{existing_keys}
+
+每个已有知识点包含：
+- key：稳定标识符
+- aliases：该知识点的别名或同义说法
+
+## 本轮问答
+问题：{question}
+用户回答：{user_answer}
+LLM 参考答案：{llm_reference}
+
+## 任务
+1. 根据"问题"和"LLM 参考答案"，识别本轮真正考察的 1–3 个核心知识点。
+2. 对每个知识点，先尝试匹配"已有知识点"：
+   - 如果当前知识点与某个已有 key / aliases 表示的是同一个可学习概念，必须复用已有 key。
+   - 如果只是话题相关、上下游相关、或者名称相似但考察重点不同，不要复用。
+   - 如果没有合适的已有 key，创建新的 snake_case key。
+3. 根据"用户回答"相对于"LLM 参考答案"的准确性、完整性和深度，对每个知识点打 0–10 分。
+4. 给出一句 strength 和一句 weakness，必须具体对应用户本轮回答，不要泛泛而谈。
+
+## 约束
+- updates 数量为 1–3。
+- key 必须是英文小写 snake_case。
+- 如果复用已有 key，key 必须与已有知识点中的 key 完全一致。
+- aliases 只放本轮新出现、且有助于后续匹配的别名；没有则为空数组。
+- score 必须是 0–10 的整数。
+- strength：只有当用户回答中存在具体、可定位的优点时才输出；否则为 null。禁止泛泛评价，例如"回答较完整""表达清晰"。
+- weakness：只有当用户回答中存在具体错误、遗漏或表达不清时才输出；否则为 null。禁止泛泛评价，例如"理解不够深入""还需加强"。
+- 不要输出过宽泛的 key，例如 mechanism_understanding、design_thinking、basic_concept。
+- 回复结果不要包含markdown围栏，不要包含任何其他文字。
+"""
+
 
 def get_prompts(mode: str) -> dict[str, str]:
     if mode == "learn":
@@ -83,9 +120,11 @@ def get_prompts(mode: str) -> dict[str, str]:
             "questioner": LEARN_QUESTIONER,
             "answerer": LEARN_ANSWERER,
             "planner": LEARN_PLANNER,
+            "memory": MEMORY_UPDATER,
         }
     return {
         "questioner": INTERVIEW_QUESTIONER,
         "answerer": INTERVIEW_ANSWERER,
         "planner": INTERVIEW_PLANNER,
+        "memory": MEMORY_UPDATER,
     }

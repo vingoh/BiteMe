@@ -25,3 +25,8 @@ dev = ["pytest>=8", "pytest-mock>=3.14"]
 
 [project.scripts]
 biteme = "biteme.cli:app"
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: real LLM integration tests, require OPENAI_API_KEY (run with -m integration)",
+]
