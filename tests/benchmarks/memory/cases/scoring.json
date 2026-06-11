@@ -1,0 +1,31 @@
+{
+  "category": "scoring",
+  "cases": [
+    {
+      "id": "score_good_decoding",
+      "description": "优秀回答应得高分，strength 具体，weakness 为 null",
+      "initial_memory": { "entries": {} },
+      "question": "LLM 推理时 temperature、top-p（nucleus sampling）和 top-k 采样各自如何影响输出多样性和质量？",
+      "user_answer": "Temperature 缩放 logits 分布：越高输出越随机多样，越低越确定保守。Top-k 只从概率最高的 k 个 token 中采样，限制候选范围。Top-p 动态选择累积概率达到 p 的最小 token 集合，自适应候选数量。实际应用中 temperature 和 top-p 常配合使用。",
+      "llm_reference": "Temperature T 将 logits 除以 T：T→0 趋近 greedy decoding，T>1 分布更平坦、输出更多样。Top-k 固定候选集大小，可能排除合理低概率 token 或保留不合理高概率 token。Top-p（nucleus sampling）自适应截断，保留累积概率达 p 的最小集合，在多样性和质量间更灵活。生产环境常用 temperature=0.7, top-p=0.9。",
+      "scoring_points": [
+        { "name": "score_accurate", "points": 4, "check": "score_near_standard", "params": { "standard_score": 8, "threshold": 2 } },
+        { "name": "strength_specific", "points": 3, "check": "comment_specific", "params": { "field": "strength" } },
+        { "name": "weakness_null", "points": 3, "check": "weakness_is_null" }
+      ]
+    },
+    {
+      "id": "score_poor_decoding",
+      "description": "差回答应得低分，weakness 具体，strength 为 null",
+      "initial_memory": { "entries": {} },
+      "question": "LLM 推理时 temperature、top-p（nucleus sampling）和 top-k 采样各自如何影响输出多样性和质量？",
+      "user_answer": "temperature 越高越好，top-k 和 top-p 差不多。",
+      "llm_reference": "Temperature T 将 logits 除以 T：T→0 趋近 greedy decoding，T>1 分布更平坦、输出更多样。Top-k 固定候选集大小，可能排除合理低概率 token 或保留不合理高概率 token。Top-p（nucleus sampling）自适应截断，保留累积概率达 p 的最小集合，在多样性和质量间更灵活。生产环境常用 temperature=0.7, top-p=0.9。",
+      "scoring_points": [
+        { "name": "score_accurate", "points": 4, "check": "score_near_standard", "params": { "standard_score": 2, "threshold": 2 } },
+        { "name": "weakness_specific", "points": 3, "check": "comment_specific", "params": { "field": "weakness" } },
+        { "name": "strength_null", "points": 3, "check": "strength_is_null" }
+      ]
+    }
+  ]
+}

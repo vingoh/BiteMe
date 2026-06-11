@@ -1,0 +1,51 @@
+{
+  "category": "no_merge",
+  "cases": [
+    {
+      "id": "no_merge_rlhf_vs_sft",
+      "description": "RLHF 与 SFT 相关但考察重点不同，不应合并",
+      "initial_memory": {
+        "entries": {
+          "supervised_finetuning": {
+            "aliases": ["监督微调", "SFT", "supervised fine-tuning"],
+            "recent_scores": [6],
+            "avg_score": 6.0,
+            "last_update": "2026-01-01",
+            "comments": { "strength": [], "weakness": [] }
+          }
+        }
+      },
+      "question": "RLHF（基于人类反馈的强化学习）是如何对齐大语言模型的？它与 SFT 有什么不同？",
+      "user_answer": "RLHF 先训练奖励模型学习人类偏好，再用 PPO 等强化学习算法优化 LLM 策略，使输出更符合人类期望。SFT 只是用标注数据做监督学习；RLHF 在此基础上进一步优化难以用监督损失表达的偏好（如有用性、安全性）。",
+      "llm_reference": "RLHF 三阶段：1) SFT 在高质量示范数据上微调；2) 训练 reward model 预测人类偏好排序；3) 用 PPO 以 reward model 为信号优化策略。相比纯 SFT，RLHF 能优化开放性质量维度（helpfulness、harmlessness）。InstructGPT、ChatGPT 均采用此流程。",
+      "scoring_points": [
+        { "name": "sft_not_updated", "points": 4, "check": "key_not_updated", "params": { "key": "supervised_finetuning" } },
+        { "name": "rlhf_key", "points": 4, "check": "key_semantic_match", "params": { "keywords": ["rlhf", "reward", "偏好", "alignment"] } },
+        { "name": "snake_case", "points": 2, "check": "snake_case_valid" }
+      ]
+    },
+    {
+      "id": "no_merge_kv_cache_vs_quantization",
+      "description": "KV cache 与量化是不同优化手段，不应合并",
+      "initial_memory": {
+        "entries": {
+          "model_quantization": {
+            "aliases": ["模型量化", "quantization", "INT8", "INT4"],
+            "recent_scores": [7],
+            "avg_score": 7.0,
+            "last_update": "2026-01-01",
+            "comments": { "strength": [], "weakness": [] }
+          }
+        }
+      },
+      "question": "LLM 推理中的 KV cache 是什么？它如何解决自回归生成的效率问题？",
+      "user_answer": "KV cache 在自回归生成时缓存已计算过的 key/value 向量，避免每生成一个新 token 就重新计算整个序列的 attention。这使生成复杂度从 O(n²) 降到 O(n)，大幅加速长序列推理。",
+      "llm_reference": "自回归生成中，每个新 token 的 attention 只需与历史 token 的 K/V 交互。KV cache 存储每层已计算的 K/V 矩阵，新 token 只计算自己的 Q/K/V 并与 cache 拼接。代价是显存随序列长度线性增长。PagedAttention（vLLM）通过分页管理 KV cache 提升显存利用率。",
+      "scoring_points": [
+        { "name": "quant_not_updated", "points": 4, "check": "key_not_updated", "params": { "key": "model_quantization" } },
+        { "name": "kv_key", "points": 4, "check": "key_semantic_match", "params": { "keywords": ["kv", "cache", "缓存"] } },
+        { "name": "no_broad", "points": 2, "check": "no_broad_keys" }
+      ]
+    }
+  ]
+}

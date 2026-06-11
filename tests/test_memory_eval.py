@@ -155,9 +155,23 @@ def test_no_reuse_related_but_different(tmp_path):
     print("\n[观察] 期望 LLM 新建 key（不应是 llm_context_window），entries 数量应 >= 2")
     print(f"[结果] entries keys: {list(written['entries'].keys())}")
 
-    assert len(written["entries"]) >= 1
-    for entry in written["entries"].values():
+    # llm_context_window 不应被本轮更新（话题相关但考察重点不同）
+    assert "llm_context_window" in written["entries"]
+    ctx_entry = written["entries"]["llm_context_window"]
+    initial_ctx = initial_data["entries"]["llm_context_window"]
+    assert ctx_entry["recent_scores"] == initial_ctx["recent_scores"]
+    assert ctx_entry["last_update"] == initial_ctx["last_update"]
+    assert ctx_entry["comments"] == initial_ctx["comments"]
+
+    new_keys = set(written["entries"].keys()) - set(initial_data["entries"].keys())
+    assert new_keys, (
+        f"expected a new key for RAG, but only got: {list(written['entries'].keys())}"
+    )
+    for key in new_keys:
+        entry = written["entries"][key]
         _assert_entry_valid(entry)
+        assert len(entry["recent_scores"]) >= 1
+        assert entry["last_update"] != initial_ctx["last_update"]
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,31 @@
+{
+  "category": "multi_key",
+  "cases": [
+    {
+      "id": "multi_key_react_agent",
+      "description": "ReAct Agent 大问题应拆出 2-3 个记忆点",
+      "initial_memory": { "entries": {} },
+      "question": "ReAct Agent 的推理循环是怎样的？它如何通过 tool calling 与 observation 协作完成复杂任务？",
+      "user_answer": "ReAct 循环是 Thought → Action → Observation：模型先推理下一步（Thought），再调用工具（Action），读取工具返回（Observation），然后继续推理。通过 function calling 声明工具 schema，模型生成调用参数，框架执行后把结果反馈给模型。",
+      "llm_reference": "ReAct（Reasoning + Acting）交替生成推理轨迹和工具调用。Thought 步骤让模型显式规划；Action 通过 function calling 调用外部 API；Observation 将工具输出注入上下文，驱动下一轮 Thought。这与纯 Chain-of-Thought 不同，ReAct 能获取实时外部信息。Tool calling 是 Action 的实现机制。",
+      "scoring_points": [
+        { "name": "update_count", "points": 4, "check": "update_count_range", "params": { "min": 2, "max": 3 } },
+        { "name": "distinct_keys", "points": 3, "check": "keys_semantically_distinct", "params": { "min_count": 2 } },
+        { "name": "no_broad", "points": 3, "check": "no_broad_keys" }
+      ]
+    },
+    {
+      "id": "multi_key_llm_inference",
+      "description": "LLM 推理优化大问题应覆盖 KV cache / speculative decoding / batching",
+      "initial_memory": { "entries": {} },
+      "question": "生产环境中部署 LLM 时，KV cache、投机解码（speculative decoding）和 continuous batching 分别如何提升推理吞吐？",
+      "user_answer": "KV cache 避免重复计算历史 token 的 attention，加速自回归生成。投机解码用小模型快速生成候选 token，大模型并行验证，减少大模型前向次数。Continuous batching 在 batch 中动态插入新请求、移除已完成请求，提高 GPU 利用率。",
+      "llm_reference": "KV cache 将历史 K/V 缓存，单步生成从 O(n²) 降至 O(n)，代价是显存随序列增长。Speculative decoding 用 draft model 生成 γ 个候选 token，target model 一次前向验证，接受连续匹配的前缀，可提速 2-3x。Continuous batching（vLLM/TGI）不等整个 batch 完成才调度，动态填充空闲 slot，显著提升吞吐。",
+      "scoring_points": [
+        { "name": "update_count", "points": 3, "check": "update_count_range", "params": { "min": 2, "max": 3 } },
+        { "name": "sub_concepts", "points": 4, "check": "keyword_groups_covered", "params": { "groups": [["kv", "cache", "缓存"], ["speculative", "投机"], ["batch", "批"]] } },
+        { "name": "has_alias", "points": 3, "check": "alias_nonempty" }
+      ]
+    }
+  ]
+}

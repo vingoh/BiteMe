@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 import os
 import tempfile
 from datetime import date
@@ -154,6 +155,63 @@ def apply_updates(data: MemoryFile, updates: list[MemoryUpdate]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# LLM invoke (no disk I/O)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class MemoryInvokeResult:
+    updates: list[MemoryUpdate] | None
+    parse_ok: bool
+
+
+def invoke_memory_update(
+    *,
+    existing_keys: list[dict],
+    question: str,
+    user_answer: str,
+    llm_reference: str,
+    mode: str,
+    model: str | None = None,
+) -> MemoryInvokeResult:
+    """Call the memory LLM and return parsed updates. Does not touch disk."""
+    prompts = get_prompts(mode)
+    prompt_text = prompts["memory"].format(
+        existing_keys=existing_keys,
+        question=question,
+        user_answer=user_answer,
+        llm_reference=llm_reference,
+    )
+    llm_model = model or settings.openai_model
+    llm = ChatOpenAI(model=llm_model, temperature=0.0)
+    structured_llm = llm.with_structured_output(MemoryUpdates)
+
+    result: MemoryUpdates | None = None
+    try:
+        result = structured_llm.invoke([HumanMessage(content=prompt_text)])
+        return MemoryInvokeResult(updates=result.updates, parse_ok=True)
+    except Exception as exc:
+        raw_content: str | None = None
+        if isinstance(exc, ValidationError):
+            for err in exc.errors():
+                if err.get("type") == "json_invalid" and isinstance(err.get("input"), str):
+                    raw_content = err["input"]
+                    break
+        if raw_content is not None:
+            try:
+                result = _parse_memory_updates(raw_content)
+                return MemoryInvokeResult(updates=result.updates, parse_ok=True)
+            except Exception:
+                pass
+        try:
+            raw_resp = llm.invoke([HumanMessage(content=prompt_text)])
+            result = _parse_memory_updates(raw_resp.content)
+            return MemoryInvokeResult(updates=result.updates, parse_ok=True)
+        except Exception:
+            logger.exception("invoke_memory_update LLM call failed")
+            return MemoryInvokeResult(updates=None, parse_ok=False)
+
+
+# ---------------------------------------------------------------------------
 # LangGraph node
 # ---------------------------------------------------------------------------
 
@@ -177,54 +235,23 @@ def memory_node(state: SessionState) -> dict:
         for k, v in data["entries"].items()
     ]
 
-    prompts = get_prompts(state["mode"])
-    prompt_text = prompts["memory"].format(
+    invoke_result = invoke_memory_update(
         existing_keys=existing_keys,
         question=question,
         user_answer=user_answer,
         llm_reference=llm_reference,
+        mode=state["mode"],
     )
+    if not invoke_result.parse_ok or invoke_result.updates is None:
+        return {}
 
-    llm = ChatOpenAI(model=settings.openai_model, temperature=0.0)
-    structured_llm = llm.with_structured_output(MemoryUpdates)
-
-    result: MemoryUpdates | None = None
-    try:
-        result = structured_llm.invoke([HumanMessage(content=prompt_text)])
-    except Exception as exc:
-        # Fallback: models without native structured output still return valid
-        # JSON in message.content (often markdown-wrapped). Recover it instead
-        # of skipping the memory update entirely.
-        raw_content: str | None = None
-        if isinstance(exc, ValidationError):
-            # Reuse the LLM response already embedded in the parse error — no
-            # extra API call needed.
-            for err in exc.errors():
-                if err.get("type") == "json_invalid" and isinstance(err.get("input"), str):
-                    raw_content = err["input"]
-                    break
-
-        if raw_content is None:
-            # Last resort when the error carries no parseable input.
-            try:
-                raw_resp = llm.invoke([HumanMessage(content=prompt_text)])
-                raw_content = raw_resp.content
-            except Exception:
-                logger.exception("memory_node LLM call failed — skipping memory update")
-                return {}
-        try:
-            result = _parse_memory_updates(raw_content)
-        except Exception:
-            logger.exception("memory_node LLM call failed — skipping memory update")
-            return {}
-
-    apply_updates(data, result.updates)
+    apply_updates(data, invoke_result.updates)
     save_memory(data, memory_path)
 
     console = Console()
     summary = "\n".join(
-        f"  [{u.key}] score={u.score}  strength: {u.strength}  weakness: {u.weakness}"
-        for u in result.updates
+        f"  {u.key} score={u.score}  strength: {u.strength}  weakness: {u.weakness}"
+        for u in invoke_result.updates
     )
     console.print(Panel(summary, title="[magenta]Memory Updated[/magenta]"))
 

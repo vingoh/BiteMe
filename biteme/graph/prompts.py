@@ -98,6 +98,7 @@ LLM 参考答案：{llm_reference}
    - 如果当前知识点与某个已有 key / aliases 表示的是同一个可学习概念，必须复用已有 key。
    - 如果只是话题相关、上下游相关、或者名称相似但考察重点不同，不要复用。
    - 如果没有合适的已有 key，创建新的 snake_case key。
+   - 若本轮问题已有明确主题，不要额外拆分出与已有 key 仅弱相关的次要知识点。
 3. 根据"用户回答"相对于"LLM 参考答案"的准确性、完整性和深度，对每个知识点打 0–10 分。
 4. 给出一句 strength 和一句 weakness，必须具体对应用户本轮回答，不要泛泛而谈。
 
@@ -113,6 +114,16 @@ LLM 参考答案：{llm_reference}
 - 回复结果不要包含markdown围栏，不要包含任何其他文字。
 """
 
+MEMORY_PROMPT_VARIANTS: dict[str, str] = {
+    "default": MEMORY_UPDATER,
+}
+
+
+def get_memory_prompt(variant: str = "default") -> str:
+    if variant not in MEMORY_PROMPT_VARIANTS:
+        raise KeyError(f"Unknown memory prompt variant: {variant}")
+    return MEMORY_PROMPT_VARIANTS[variant]
+
 
 def get_prompts(mode: str) -> dict[str, str]:
     if mode == "learn":
@@ -120,11 +131,11 @@ def get_prompts(mode: str) -> dict[str, str]:
             "questioner": LEARN_QUESTIONER,
             "answerer": LEARN_ANSWERER,
             "planner": LEARN_PLANNER,
-            "memory": MEMORY_UPDATER,
+            "memory": get_memory_prompt("default"),
         }
     return {
         "questioner": INTERVIEW_QUESTIONER,
         "answerer": INTERVIEW_ANSWERER,
         "planner": INTERVIEW_PLANNER,
-        "memory": MEMORY_UPDATER,
+        "memory": get_memory_prompt("default"),
     }

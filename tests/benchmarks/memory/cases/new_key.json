@@ -1,0 +1,33 @@
+{
+  "category": "new_key",
+  "cases": [
+    {
+      "id": "new_key_langgraph_checkpointer",
+      "description": "空 memory 应新建 LangGraph checkpointer 相关 key",
+      "initial_memory": { "entries": {} },
+      "question": "LangGraph 中 checkpointer 的作用是什么？它是如何实现持久化的？",
+      "user_answer": "checkpointer 用于保存图执行过程中的状态快照，支持从中断点恢复执行，也就是说可以在 HITL 场景下暂停等待用户输入。常见实现有 SqliteSaver（本地 SQLite）和 PostgresSaver（云端）。",
+      "llm_reference": "LangGraph 的 checkpointer 在每个节点执行后将当前 state 序列化并持久化存储。当 graph 遇到 interrupt 时，执行挂起；外部输入到达后可从对应 checkpoint 恢复。这使 Human-in-the-Loop（HITL）场景成为可能，也支持长时运行的 agent 故障恢复。接口：BaseCheckpointSaver，内置实现包括 SqliteSaver、AsyncSqliteSaver。",
+      "scoring_points": [
+        { "name": "creates_key", "points": 3, "check": "key_created" },
+        { "name": "snake_case", "points": 2, "check": "snake_case_valid" },
+        { "name": "has_alias", "points": 2, "check": "alias_nonempty" },
+        { "name": "semantic", "points": 3, "check": "key_semantic_match", "params": { "keywords": ["checkpointer", "langgraph", "checkpoint"] } }
+      ]
+    },
+    {
+      "id": "new_key_bpe_tokenization",
+      "description": "空 memory 应新建 BPE/tokenization 相关 key",
+      "initial_memory": { "entries": {} },
+      "question": "大语言模型使用的 BPE（Byte Pair Encoding）分词算法是如何工作的？为什么 LLM 需要子词（subword）分词？",
+      "user_answer": "BPE 从字符级词表出发，迭代合并最高频的相邻 token 对，逐步构建子词词表。子词分词能平衡词表大小与未登录词（OOV）问题，常见词保持完整，罕见词拆成子词片段。",
+      "llm_reference": "BPE 通过统计语料中相邻符号对的频率，反复合并最高频对来扩展词表，直到达到预设词表大小。子词分词使模型能处理任意新词（通过子词组合），同时控制 embedding 矩阵规模。GPT 系列使用 BPE；SentencePiece 等变体支持多语言和无空格语言。",
+      "scoring_points": [
+        { "name": "creates_key", "points": 3, "check": "key_created" },
+        { "name": "no_broad", "points": 3, "check": "no_broad_keys" },
+        { "name": "alias_terms", "points": 2, "check": "alias_keywords", "params": { "keywords": ["token", "BPE", "分词", "tokeniz"] } },
+        { "name": "single_update", "points": 2, "check": "update_count_range", "params": { "min": 1, "max": 1 } }
+      ]
+    }
+  ]
+}

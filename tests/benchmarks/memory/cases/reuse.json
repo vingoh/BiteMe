@@ -1,0 +1,66 @@
+{
+  "category": "reuse",
+  "cases": [
+    {
+      "id": "reuse_text_embedding",
+      "description": "相同概念应复用 text_embedding，不新建 key",
+      "initial_memory": {
+        "entries": {
+          "text_embedding": {
+            "aliases": ["文本嵌入", "text embedding", "向量表示"],
+            "recent_scores": [7],
+            "avg_score": 7.0,
+            "last_update": "2026-01-01",
+            "comments": { "strength": ["能说明 embedding 的基本用途"], "weakness": ["未提及不同 embedding 模型的差异"] }
+          }
+        }
+      },
+      "question": "文本 embedding 模型是如何将自然语言转换为向量的？它在语义搜索中起什么作用？",
+      "user_answer": "Embedding 模型通过预训练将文本映射到高维向量空间，语义相近的文本向量距离更近。在语义搜索中，query 和文档都转成向量，用余弦相似度或点积检索最相关的文档。",
+      "llm_reference": "文本 embedding 模型（如 text-embedding-ada-002、BGE、E5）通过对比学习或掩码语言模型预训练，将变长文本编码为固定维度向量。语义搜索中，query embedding 与文档 embedding 计算相似度，检索 top-k 结果，比关键词匹配更能捕获语义相关性。",
+      "scoring_points": [
+        { "name": "reuse_key", "points": 4, "check": "key_reused", "params": { "key": "text_embedding" } },
+        { "name": "no_new_keys", "points": 3, "check": "no_new_keys" },
+        { "name": "score_appended", "points": 3, "check": "key_score_appended", "params": { "key": "text_embedding" } }
+      ]
+    },
+    {
+      "id": "reuse_precise_match_cot",
+      "description": "多 key 场景应精准命中 chain_of_thought",
+      "initial_memory": {
+        "entries": {
+          "chain_of_thought": {
+            "aliases": ["思维链", "chain of thought", "CoT"],
+            "recent_scores": [6],
+            "avg_score": 6.0,
+            "last_update": "2026-01-01",
+            "comments": { "strength": [], "weakness": [] }
+          },
+          "few_shot_learning": {
+            "aliases": ["少样本学习", "few-shot", "in-context learning"],
+            "recent_scores": [7],
+            "avg_score": 7.0,
+            "last_update": "2026-01-01",
+            "comments": { "strength": [], "weakness": [] }
+          },
+          "system_prompt_design": {
+            "aliases": ["系统提示词", "system prompt", "角色设定"],
+            "recent_scores": [8],
+            "avg_score": 8.0,
+            "last_update": "2026-01-01",
+            "comments": { "strength": [], "weakness": [] }
+          }
+        }
+      },
+      "question": "Chain-of-Thought（思维链）提示是如何提升 LLM 推理能力的？与直接提问相比有什么优势？",
+      "user_answer": "CoT 引导模型在给出最终答案前先输出中间推理步骤，把复杂问题分解为可验证的子步骤。相比直接提问，CoT 能显著提升数学推理、逻辑推理等需要多步思考的问题的准确率。",
+      "llm_reference": "Chain-of-Thought 通过在 prompt 中加入「让我们一步步思考」或提供推理范例，诱导模型生成中间推理链再得出答案。这激活了模型内部的推理能力，在 GSM8K 等基准上大幅提升准确率。Zero-shot CoT 只需添加触发短语；Few-shot CoT 提供推理范例效果更好。",
+      "scoring_points": [
+        { "name": "reuse_cot", "points": 4, "check": "key_reused", "params": { "key": "chain_of_thought" } },
+        { "name": "fewshot_unchanged", "points": 2, "check": "key_not_updated", "params": { "key": "few_shot_learning" } },
+        { "name": "system_unchanged", "points": 2, "check": "key_not_updated", "params": { "key": "system_prompt_design" } },
+        { "name": "score_sane", "points": 2, "check": "score_near_standard", "params": { "standard_score": 6, "threshold": 4 } }
+      ]
+    }
+  ]
+}
