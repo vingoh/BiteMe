@@ -11,6 +11,7 @@ from ..context.factory import create_provider
 from ..config import settings
 from ..tools import READONLY_TOOLS
 from .agent_runner import stream_agent
+from .memory import memory_node, recall_memory, refine_question, load_memory
 
 
 def _get_db_path(source_path: str) -> str:
@@ -74,8 +75,26 @@ def questioner_node(state: SessionState) -> dict:
                 f"建议问题（第 {turn_idx + 1} 轮）：{suggested}\n"
                 f"（直接回车使用建议问题，或输入新问题）"
             )
+            draft_for_recall = suggested
         else:
             prompt_msg = "请输入你的问题："
+            draft_for_recall = ""
+
+        # Phase 2: memory recall (only if we have a draft to compare against)
+        if draft_for_recall:
+            memory_path = settings.biteme_home / "memory.json"
+            memory_data = load_memory(memory_path)
+            recalled = recall_memory(draft_for_recall, memory_data)
+            if recalled:
+                recall_lines = "\n".join(
+                    f"  • {e.key}"
+                    f"  avg_score={memory_data['entries'][e.key]['avg_score']}"
+                    f"  最近: {memory_data['entries'][e.key]['last_update']}\n"
+                    f"    相关依据: {e.relevance_reason}"
+                    for e in recalled
+                )
+                Console().print(Panel(recall_lines, title="[magenta]相关记忆参考[/magenta]"))
+
         human_text = interrupt(prompt_msg)
         turn: Turn = {"speaker": "human", "content": human_text, "retrieved_chunks": []}
     else:
@@ -126,6 +145,16 @@ def questioner_node(state: SessionState) -> dict:
                 )
             )],
         )
+
+        # Phase 2: memory recall
+        memory_path = settings.biteme_home / "memory.json"
+        memory_data = load_memory(memory_path)
+        recalled = recall_memory(question_text, memory_data)
+
+        # Phase 3: refine based on recalled memories
+        if recalled:
+            question_text = refine_question(question_text, recalled, memory_data)
+
         turn = {"speaker": "questioner", "content": question_text, "retrieved_chunks": []}
 
     return {

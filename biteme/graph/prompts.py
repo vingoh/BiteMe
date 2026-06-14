@@ -114,6 +114,80 @@ LLM 参考答案：{llm_reference}
 - 回复结果不要包含markdown围栏，不要包含任何其他文字。
 """
 
+MEMORY_RECALL_PROMPT = """\
+你是一个记忆检索助手。根据【草稿问题】，从【已有记忆】中选出相关性最高的至多 3 条。
+
+## 草稿问题
+{draft_question}
+
+## 已有记忆
+{memory_entries}
+（每条包含：key、aliases、comments.strength、comments.weakness）
+
+## 判断标准
+
+### 标准一：Alias 直接命中
+entry 的 aliases 中有与草稿问题核心概念相同或高度重叠的说法，即便措辞不同。
+
+例子（草稿问题："BPE tokenization 是如何处理 OOV 词的？"）：
+- aliases 含 ["BPE", "Byte Pair Encoding", "子词分词"] → ✅ 直接命中
+- aliases 含 ["tokenizer", "分词器"] → ⚠️ 需结合 comments 判断，单靠 alias 不够
+- aliases 含 ["Transformer 架构", "注意力机制"] → ❌ 不相关
+
+### 标准二：Comments 话题关联
+即使 alias 未直接命中，entry 的 strength 或 weakness comments 中提到了草稿问题涉及的
+具体概念、机制、或相关术语，也视为相关。
+
+例子（草稿问题："梯度裁剪（gradient clipping）在训练中的作用？"）：
+- weakness 含 "用户没有解释梯度爆炸的触发条件" → ✅ 梯度爆炸是梯度裁剪要解决的问题，高度关联
+- strength 含 "用户正确描述了 clip_grad_norm 的用法" → ✅ 直接提到相关 API
+- comments 含 "用户对反向传播过程描述完整" → ⚠️ 上下游相关但不直接，仅在无更好候选时考虑
+- comments 含 "用户对学习率调度理解到位" → ❌ 同属优化领域但话题不同
+
+### 不算相关的情况
+- 仅因同属一个大领域（例如都是"深度学习"、"Python"、"NLP"）→ ❌
+- key 名称中有相似词但 aliases 和 comments 均无交集 → ❌
+- 相关性纯靠猜测/推断，没有 alias 或 comment 中的直接证据 → ❌
+
+## 输出
+只输出 JSON，不含 markdown 围栏：
+{{"recalled": [{{"key": "...", "relevance_reason": "..."}}, ...]}}
+relevance_reason 必须引用具体 alias 或 comment 中的文字作为依据。
+最多 3 条，完全不相关时输出 {{"recalled": []}}。
+"""
+
+MEMORY_REFINE_PROMPT = """\
+你是一位提问优化助手。根据用户的历史掌握情况，对【草稿问题】进行调整，
+使问题更有针对性地帮助用户查漏补缺。
+
+## 草稿问题
+{draft_question}
+
+## 相关历史记忆（按相关性排序）
+{recalled_entries}
+（每条包含：key、avg_score(0-10)、last_update、relevance_reason、
+  comments.strength（用户在此话题上的具体优点）、
+  comments.weakness（用户在此话题上的具体错误或遗漏））
+
+## 调整规则
+
+### 基于分数与日期
+- avg_score ≥ 7 且 last_update 在 14 天内：用户已近期掌握，转向相邻话题或追问更深层细节
+- avg_score ≤ 4：薄弱环节，保持问题方向，可适当简化难度从基础考起
+- last_update 超过 14 天（无论分数）：久未复习，保持或强化原方向
+- 若所有召回记忆均为高分且近期：在同领域内换一个新角度提问
+
+### 基于 Comments（优先级高于分数规则）
+- weakness 中有具体错误或遗漏 → 针对该错误/遗漏设计问题，让用户有机会弥补
+  例：weakness "没有解释梯度爆炸的触发条件" → 问题可聚焦在梯度爆炸的触发机制上
+- strength 中有某项能力已熟练掌握 → 避免重复考察该项，转向 weakness 或更深层问题
+  例：strength "正确描述了 clip_grad_norm 的用法" → 不再考用法，改考原理或边界情况
+- weakness 和 strength 均为空 → 退回分数/日期规则
+
+## 输出
+只输出最终问题本身，不含任何前缀或解释。
+"""
+
 MEMORY_PROMPT_VARIANTS: dict[str, str] = {
     "default": MEMORY_UPDATER,
 }
@@ -132,10 +206,14 @@ def get_prompts(mode: str) -> dict[str, str]:
             "answerer": LEARN_ANSWERER,
             "planner": LEARN_PLANNER,
             "memory": get_memory_prompt("default"),
+            "recall": MEMORY_RECALL_PROMPT,
+            "refine": MEMORY_REFINE_PROMPT,
         }
     return {
         "questioner": INTERVIEW_QUESTIONER,
         "answerer": INTERVIEW_ANSWERER,
         "planner": INTERVIEW_PLANNER,
         "memory": get_memory_prompt("default"),
+        "recall": MEMORY_RECALL_PROMPT,
+        "refine": MEMORY_REFINE_PROMPT,
     }

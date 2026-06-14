@@ -17,7 +17,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from ..config import settings
-from .prompts import get_prompts
+from .prompts import get_prompts, MEMORY_RECALL_PROMPT, MEMORY_REFINE_PROMPT
 from .state import SessionState
 
 logger = logging.getLogger(__name__)
@@ -60,6 +60,15 @@ class MemoryUpdates(BaseModel):
     updates: list[MemoryUpdate]
 
 
+class RecalledEntry(BaseModel):
+    key: str
+    relevance_reason: str  # must cite alias or comment text as evidence
+
+
+class MemoryRecallResult(BaseModel):
+    recalled: list[RecalledEntry]  # max 3
+
+
 # ---------------------------------------------------------------------------
 # LLM response parsing (fallback for models without native structured output)
 # ---------------------------------------------------------------------------
@@ -92,6 +101,45 @@ def _parse_memory_updates(content: str) -> MemoryUpdates:
         if isinstance(payload, list):
             payload = {"updates": payload}
         return MemoryUpdates.model_validate(payload)
+
+
+def _format_memory_entries_for_recall(memory_data: MemoryFile) -> str:
+    """Format all memory entries as a string for the recall prompt."""
+    lines = []
+    for key, entry in memory_data["entries"].items():
+        aliases = entry["aliases"]
+        strengths = entry["comments"]["strength"][-3:]
+        weaknesses = entry["comments"]["weakness"][-3:]
+        lines.append(
+            f"key: {key}\n"
+            f"  aliases: {aliases}\n"
+            f"  comments.strength: {strengths}\n"
+            f"  comments.weakness: {weaknesses}"
+        )
+    return "\n\n".join(lines)
+
+
+def _format_recalled_entries_for_refine(
+    recalled: list[RecalledEntry],
+    memory_data: MemoryFile,
+) -> str:
+    """Format recalled entries with scores/dates/comments for the refine prompt."""
+    lines = []
+    for entry in recalled:
+        mem = memory_data["entries"].get(entry.key)
+        if mem is None:
+            continue
+        strengths = mem["comments"]["strength"][-3:]
+        weaknesses = mem["comments"]["weakness"][-3:]
+        lines.append(
+            f"key: {entry.key}\n"
+            f"  avg_score: {mem['avg_score']}\n"
+            f"  last_update: {mem['last_update']}\n"
+            f"  relevance_reason: {entry.relevance_reason}\n"
+            f"  comments.strength: {strengths}\n"
+            f"  comments.weakness: {weaknesses}"
+        )
+    return "\n\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +205,72 @@ def apply_updates(data: MemoryFile, updates: list[MemoryUpdate]) -> None:
 # ---------------------------------------------------------------------------
 # LLM invoke (no disk I/O)
 # ---------------------------------------------------------------------------
+
+def recall_memory(
+    draft_question: str,
+    memory_data: MemoryFile,
+    model: str | None = None,
+) -> list[RecalledEntry]:
+    """Call LLM to find top-3 most relevant memory entries for the draft question.
+
+    Returns empty list if memory is empty, draft is empty, or LLM call fails.
+    """
+    if not draft_question.strip():
+        return []
+    if not memory_data["entries"]:
+        return []
+
+    memory_entries_text = _format_memory_entries_for_recall(memory_data)
+    prompt_text = MEMORY_RECALL_PROMPT.format(
+        draft_question=draft_question,
+        memory_entries=memory_entries_text,
+    )
+
+    llm_model = model or settings.openai_model
+    llm = ChatOpenAI(model=llm_model, temperature=0.0)
+    structured_llm = llm.with_structured_output(MemoryRecallResult)
+
+    try:
+        result: MemoryRecallResult = structured_llm.invoke([HumanMessage(content=prompt_text)])
+        valid_entries = [
+            e for e in result.recalled
+            if e.key in memory_data["entries"]
+        ]
+        return valid_entries[:3]
+    except Exception:
+        logger.warning("recall_memory LLM call failed", exc_info=True)
+        return []
+
+
+def refine_question(
+    draft_question: str,
+    recalled: list[RecalledEntry],
+    memory_data: MemoryFile,
+    model: str | None = None,
+) -> str:
+    """Refine draft_question based on recalled memory entries.
+
+    Returns draft_question unchanged if LLM fails or returns empty string.
+    """
+    recalled_entries_text = _format_recalled_entries_for_refine(recalled, memory_data)
+    prompt_text = MEMORY_REFINE_PROMPT.format(
+        draft_question=draft_question,
+        recalled_entries=recalled_entries_text,
+    )
+
+    llm_model = model or settings.openai_model
+    llm = ChatOpenAI(model=llm_model, temperature=0.7)
+
+    try:
+        response = llm.invoke([HumanMessage(content=prompt_text)])
+        refined = response.content.strip()
+        if not refined:
+            return draft_question
+        return refined
+    except Exception:
+        logger.warning("refine_question LLM call failed", exc_info=True)
+        return draft_question
+
 
 @dataclass
 class MemoryInvokeResult:
